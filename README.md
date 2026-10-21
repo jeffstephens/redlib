@@ -1,5 +1,9 @@
 # Redlib
 
+**This fork:** preserves evrial/redlib and adds a workaround for Reddit thread
+blocking. See [fork notes and container images](FORK.md) for running it and
+understanding its limitations.
+
 > An alternative private front-end to Reddit, with its origins in [Libreddit](https://github.com/libreddit/libreddit).
 
 ![screenshot](https://i.ibb.co/18vrdxk/redlib-rust.png)
