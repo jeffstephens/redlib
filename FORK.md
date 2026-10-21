@@ -10,6 +10,12 @@ Queries and other routes are unchanged. Non-JSON HTTP 403 responses explicitly
 report the block. This is a temporary workaround: Reddit can change its request
 filtering, and other endpoints may still be blocked.
 
+The TLS connector explicitly advertises HTTP/1.1 through ALPN for both OAuth
+and API requests. Controlled Linux-client tests found this avoided a TLS-profile
+block without changing request headers, disabling certificate verification, or
+capping the maximum TLS version. As with the path workaround, Reddit may change
+its filtering again. Actual image testing remains part of release validation.
+
 ## Container images
 
 Public images are available from
