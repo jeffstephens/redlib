@@ -12,6 +12,9 @@ for redlib-org/redlib#591 (reported by BrunoNRS; upstream PR #592). Queries and
 other routes are unchanged. This temporary workaround does not fix every
 blocked Reddit endpoint. Non-JSON 403 responses explicitly report the block.
 
+Two behavior-preserving compatibility fixes remove a deprecated `core::f64`
+module import and a redundant formatting borrow flagged by current Clippy.
+
 ## Checks and publication
 
 GitHub Actions checks formatting, Clippy, compiles the whole test suite, and runs
