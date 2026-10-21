@@ -30,7 +30,17 @@ const REDDIT_SHORT_URL_BASE_HOST: &str = "redd.it";
 const ALTERNATIVE_REDDIT_URL_BASE: &str = "https://www.reddit.com";
 const ALTERNATIVE_REDDIT_URL_BASE_HOST: &str = "www.reddit.com";
 
-pub static HTTPS_CONNECTOR: LazyLock<HttpsConnector<HttpConnector>> = LazyLock::new(HttpsConnector::new);
+pub static HTTPS_CONNECTOR: LazyLock<HttpsConnector<HttpConnector>> = LazyLock::new(|| {
+	let mut http = HttpConnector::new();
+	http.enforce_http(false);
+
+	// Advertise the protocol Hyper will use. Some Reddit edges reject the
+	// Linux/OpenSSL handshake without ALPN, even with otherwise valid requests.
+	let mut tls = native_tls::TlsConnector::builder();
+	tls.request_alpns(&["http/1.1"]);
+	let tls = tls.build().expect("failed to initialize the TLS connector");
+	HttpsConnector::from((http, tls.into()))
+});
 
 pub static CLIENT: LazyLock<Client<HttpsConnector<HttpConnector>>> = LazyLock::new(|| Client::builder().build::<_, Body>(HTTPS_CONNECTOR.clone()));
 
@@ -631,4 +641,70 @@ async fn test_gated_sub() {
 	let link = json("/r/drugs/about.json?raw_json=1".into(), false).await;
 	assert!(link.is_err());
 	assert_eq!(link, Err("gated".into()));
+}
+
+#[cfg(test)]
+mod tls_tests {
+	use super::CLIENT;
+	use hyper::Uri;
+	use tokio::{
+		io::AsyncReadExt,
+		net::TcpListener,
+		time::{timeout, Duration},
+	};
+
+	fn take<'a>(input: &mut &'a [u8], length: usize) -> &'a [u8] {
+		let (value, rest) = input.split_at(length);
+		*input = rest;
+		value
+	}
+
+	fn take_u16(input: &mut &[u8]) -> usize {
+		let bytes = take(input, 2);
+		u16::from_be_bytes([bytes[0], bytes[1]]) as usize
+	}
+
+	#[tokio::test]
+	async fn https_client_advertises_http11_alpn() {
+		// Inspect the real production connector's ClientHello on loopback.
+		// No trusted certificate or Reddit connection is required.
+		let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+		let uri: Uri = format!("https://{}/", listener.local_addr().unwrap()).parse().unwrap();
+		let request = tokio::spawn(async move { CLIENT.get(uri).await });
+		let (mut socket, _) = timeout(Duration::from_secs(5), listener.accept()).await.unwrap().unwrap();
+		let mut header = [0; 5];
+		timeout(Duration::from_secs(5), socket.read_exact(&mut header)).await.unwrap().unwrap();
+		assert_eq!(header[0], 22, "expected a TLS handshake record");
+		let mut record = vec![0; u16::from_be_bytes([header[3], header[4]]) as usize];
+		timeout(Duration::from_secs(5), socket.read_exact(&mut record)).await.unwrap().unwrap();
+		request.abort();
+		assert_eq!(record[0], 1, "expected ClientHello");
+
+		let mut hello = &record[4..];
+		take(&mut hello, 34); // legacy version and random
+		let length = take(&mut hello, 1)[0] as usize;
+		take(&mut hello, length); // session ID
+		let length = take_u16(&mut hello);
+		take(&mut hello, length); // cipher suites
+		let length = take(&mut hello, 1)[0] as usize;
+		take(&mut hello, length); // compression methods
+		let length = take_u16(&mut hello);
+		let mut extensions = take(&mut hello, length);
+		let mut protocols = Vec::new();
+		while !extensions.is_empty() {
+			let kind = take_u16(&mut extensions);
+			let length = take_u16(&mut extensions);
+			let mut extension = take(&mut extensions, length);
+			if kind == 16 {
+				// ALPN
+				let length = take_u16(&mut extension);
+				let mut names = take(&mut extension, length);
+				while !names.is_empty() {
+					let length = take(&mut names, 1)[0] as usize;
+					protocols.push(take(&mut names, length).to_vec());
+				}
+			}
+		}
+		assert_eq!(protocols, vec![b"http/1.1".to_vec()]);
+	}
 }

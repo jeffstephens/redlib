@@ -1487,6 +1487,7 @@ dependencies = [
  "libflate",
  "lipsum",
  "log",
+ "native-tls",
  "openssl",
  "percent-encoding",
  "pretty_env_logger",
