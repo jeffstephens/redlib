@@ -1,52 +1,79 @@
-name: Docker Image CI
+name: Verify and publish
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
-  packages: write
+
+concurrency:
+  group: redlib-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  build-and-push:
-    runs-on: ubuntu-latest
+  verify:
+    runs-on: ubuntu-24.04
     steps:
-      - name: Checkout sources
-        uses: actions/checkout@v4
-
-      - name: Cache Packages
-        uses: Swatinem/rust-cache@v2
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          driver: docker-container
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      # Compile the complete suite. Live Reddit tests are excluded from the
+      # deterministic gate because blocking and rate limits affect hosted CI.
+      - run: cargo test --locked --no-run
+      - name: Run offline tests
+        run: >-
+          cargo test --locked --
+          --skip client::test_
+          --skip oauth::test_mobile_spoof_backend
+          --skip oauth::test_generic_web_backend
+          --skip oauth::test_oauth_
+          --skip subreddit::test_fetching_subreddit
+          --skip subreddit::test_gated_and_quarantined
+          --skip user::test_fetching_user
+          --skip utils::test_fetching_
 
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
+  publish:
+    needs: verify
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extract metadata for Docker
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/${{ github.repository }}
-          tags: |
-            type=ref,event=branch
-            type=sha,format=short
-            type=raw,value=latest,enable={{is_default_branch}}
-
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v5
+      - name: Choose immutable tag
+        id: tag
+        run: echo "value=main-$(date -u +%s)-${GITHUB_SHA::12}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@v6
+        id: build
         with:
           context: .
           push: true
-          platforms: linux/amd64,linux/arm64,linux/arm/v7,linux/riscv64
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64,linux/arm64
+          tags: ghcr.io/${{ github.repository }}:${{ steps.tag.outputs.value }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.licenses=AGPL-3.0-only
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      - name: Record deployment reference
+        run: |
+          echo 'Image: ghcr.io/${{ github.repository }}:${{ steps.tag.outputs.value }}@${{ steps.build.outputs.digest }}' >> "$GITHUB_STEP_SUMMARY"
