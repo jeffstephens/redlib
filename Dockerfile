@@ -27,7 +27,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,id=reg-${TARGETPLATFORM}
         *) echo "Unsupported platform: ${TARGETPLATFORM}"; exit 1 ;; \
     esac && \
     rustup target add "$T" || true && \
-    cargo zigbuild --release --target "$T" --bin redlib && \
+    cargo zigbuild --locked --release --target "$T" --bin redlib && \
     cp target/"$T"/release/redlib /usr/local/bin/redlib
 
 # Final verification of the binary architecture

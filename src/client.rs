@@ -380,7 +380,7 @@ pub async fn json(path: String, quarantine: bool) -> Result<Value, String> {
 	OAUTH_RATELIMIT_REMAINING.fetch_sub(1, Ordering::SeqCst);
 
 	// Fetch the url...
-	match reddit_get(path.clone(), quarantine).await {
+	match reddit_get(encode_thread_route(&path), quarantine).await {
 		Ok(response) => {
 			let status = response.status();
 
@@ -468,7 +468,9 @@ pub async fn json(path: String, quarantine: bool) -> Result<Value, String> {
 						}
 						Err(e) => {
 							error!("Got an invalid response from reddit {e}. Status code: {status}");
-							if status.is_server_error() {
+							if status == hyper::StatusCode::FORBIDDEN {
+								Err(format!("Reddit blocked this request (403 Forbidden) | {path}"))
+							} else if status.is_server_error() {
 								Err("Reddit is having issues, check if there's an outage".to_string())
 							} else {
 								err("Failed to parse page JSON data", e.to_string(), path)
@@ -480,6 +482,60 @@ pub async fn json(path: String, quarantine: bool) -> Result<Value, String> {
 			}
 		}
 		Err(e) => err("Couldn't send request to Reddit", e, path),
+	}
+}
+
+/// Work around Reddit's literal thread-route block (redlib-org/redlib#591).
+/// Encode only the separator before `comments`; preserve queries and other routes.
+fn encode_thread_route(path: &str) -> String {
+	let (route, query) = path.split_once('?').map_or((path, ""), |(route, _)| (route, &path[route.len()..]));
+	if let Some(rest) = route.strip_prefix("/r/") {
+		if let Some((subreddit, tail)) = rest.split_once('/') {
+			if tail == "comments" || tail.starts_with("comments/") || tail.starts_with("comments.") {
+				return format!("/r/{subreddit}%2F{tail}{query}");
+			}
+		}
+	}
+	path.to_string()
+}
+
+#[cfg(test)]
+mod thread_route_tests {
+	use super::encode_thread_route;
+
+	#[test]
+	fn encodes_thread_routes_and_preserves_queries() {
+		for (input, expected) in [
+			("/r/rust/comments/abc/.json?sort=new&raw_json=1", "/r/rust%2Fcomments/abc/.json?sort=new&raw_json=1"),
+			("/r/rust/comments/abc/title/def/.json", "/r/rust%2Fcomments/abc/title/def/.json"),
+			("/r/comments/comments/abc/.json", "/r/comments%2Fcomments/abc/.json"),
+			("/r/rust/comments.json?", "/r/rust%2Fcomments.json?"),
+			("/r/rust/comments", "/r/rust%2Fcomments"),
+		] {
+			assert_eq!(encode_thread_route(input), expected);
+		}
+	}
+
+	#[test]
+	fn leaves_other_routes_and_encoded_paths_unchanged() {
+		for input in [
+			"/r/rust/hot.json?next=/comments/abc",
+			"/r/rust/about.json",
+			"/user/example/comments.json",
+			"/r/rust/commentsXYZ.json",
+			"/r/rust/s/example",
+			"/r/rust%2Fcomments/abc/.json",
+			"/comments/abc/.json",
+		] {
+			assert_eq!(encode_thread_route(input), input);
+		}
+	}
+
+	#[test]
+	fn http_uri_preserves_encoded_separator() {
+		let path = encode_thread_route("/r/rust/comments/abc/.json?raw_json=1");
+		let uri: hyper::Uri = format!("https://oauth.reddit.com{path}").parse().unwrap();
+		assert_eq!(uri.path_and_query().unwrap().as_str(), "/r/rust%2Fcomments/abc/.json?raw_json=1");
 	}
 }
 
