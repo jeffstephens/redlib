@@ -16,6 +16,26 @@ block without changing request headers, disabling certificate verification, or
 capping the maximum TLS version. As with the path workaround, Reddit may change
 its filtering again. Actual image testing remains part of release validation.
 
+## Blocked thread fallback
+
+When Reddit returns a non-JSON 403 for a thread, the fork fetches post metadata
+from `/by_id` and comments from Reddit's logged-out web fragments. The regular
+JSON path remains preferred. The parser/crawler is adapted from
+[upstream PR #599](https://github.com/redlib-org/redlib/pull/599), with a separate
+Hyper-based web session, sanitized comment HTML, and proxied comment images.
+
+The fallback preserves nested replies, sorting, comment permalinks/context,
+search, and existing rendering/preferences. It loads at most 12 extra fragments
+with concurrency two and a 25-second expansion budget; remaining replies retain
+links. A shared in-memory cookie jar is separate from OAuth and caller cookies.
+Requests have time and body limits, follow only same-origin comment-fragment
+redirects, and stop on HTTP 429. Captcha responses get one fresh-session retry.
+
+This costs more requests than the JSON endpoint. Large threads initially show
+fewer comments, and author flair, awards, or some rich comment embeds may be
+missing from the web representation. Frontend changes and further blocking can
+break this fallback too. Rust 1.88 or newer is required for the cookie store.
+
 ## Container images
 
 Public images are available from
