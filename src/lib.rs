@@ -9,6 +9,9 @@ pub mod redgifs;
 pub mod search;
 pub mod server;
 pub mod settings;
+pub mod shreddit;
 pub mod subreddit;
 pub mod user;
 pub mod utils;
+
+mod web;

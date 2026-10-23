@@ -60,7 +60,20 @@ pub async fn item(req: Request<Body>) -> Result<Response<Body>, String> {
 	let highlighted_comment = &req.param("comment_id").unwrap_or_default();
 
 	// Send a request to the url, receive JSON in response
-	match json(path, quarantined).await {
+	let response = match json(path, quarantined).await {
+		Err(message) if message.starts_with("Reddit blocked this request (403 Forbidden)") => {
+			crate::shreddit::thread(
+				req.param("id").unwrap_or_default(),
+				req.param("comment_id"),
+				sort.clone(),
+				param(&url, "context"),
+				quarantined,
+			)
+			.await
+		}
+		result => result,
+	};
+	match response {
 		// Otherwise, grab the JSON output from the request
 		Ok(response) => {
 			// Parse the JSON into Post and Comment structs

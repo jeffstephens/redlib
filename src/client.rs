@@ -1,3 +1,4 @@
+pub use crate::web::shreddit_fragment;
 use arc_swap::ArcSwap;
 use cached::proc_macro::cached;
 use futures_lite::future::block_on;
@@ -477,7 +478,11 @@ pub async fn json(path: String, quarantine: bool) -> Result<Value, String> {
 							}
 						}
 						Err(e) => {
-							error!("Got an invalid response from reddit {e}. Status code: {status}");
+							if status == hyper::StatusCode::FORBIDDEN {
+								warn!("Reddit refused the JSON request (403); thread requests may use the web fallback");
+							} else {
+								error!("Got an invalid response from reddit {e}. Status code: {status}");
+							}
 							if status == hyper::StatusCode::FORBIDDEN {
 								Err(format!("Reddit blocked this request (403 Forbidden) | {path}"))
 							} else if status.is_server_error() {
