@@ -16,6 +16,7 @@ use time::{macros::format_description, OffsetDateTime};
 #[template(path = "user.html")]
 struct UserTemplate {
 	user: User,
+	metadata_available: bool,
 	posts: Vec<Post>,
 	sort: (String, String),
 	ends: (String, String),
@@ -52,7 +53,7 @@ pub async fn profile(req: Request<Body>) -> Result<Response<Body>, String> {
 	let username = req.param("name").unwrap_or_default();
 
 	// Retrieve info from user about page.
-	let user = user(&username).await.unwrap_or_default();
+	let (user, metadata_available) = profile_metadata(&username, user(&username).await);
 
 	let req_url = req.uri().to_string();
 	// Return landing page if this post if this Reddit deems this user NSFW,
@@ -66,6 +67,7 @@ pub async fn profile(req: Request<Body>) -> Result<Response<Body>, String> {
 	if filters.contains(&["u_", &username].concat()) {
 		Ok(template(&UserTemplate {
 			user,
+			metadata_available,
 			posts: Vec::new(),
 			sort: (sort, param(&path, "t").unwrap_or_default()),
 			ends: (param(&path, "after").unwrap_or_default(), String::new()),
@@ -87,6 +89,7 @@ pub async fn profile(req: Request<Body>) -> Result<Response<Body>, String> {
 				let all_posts_hidden_nsfw = !no_posts && (posts.iter().all(|p| p.flags.nsfw) && setting(&req, "show_nsfw") != "on");
 				Ok(template(&UserTemplate {
 					user,
+					metadata_available,
 					posts,
 					sort: (sort, param(&path, "t").unwrap_or_default()),
 					ends: (param(&path, "after").unwrap_or_default(), after),
@@ -102,6 +105,23 @@ pub async fn profile(req: Request<Body>) -> Result<Response<Body>, String> {
 			}
 			// If there is an error show error page
 			Err(msg) => error(req, &msg).await,
+		}
+	}
+}
+
+// Keep route identity even when Reddit blocks optional profile metadata.
+fn profile_metadata(name: &str, result: Result<User, String>) -> (User, bool) {
+	match result {
+		Ok(user) => (user, true),
+		Err(message) => {
+			log::warn!("Profile metadata unavailable for u/{name}: {message}");
+			(
+				User {
+					name: name.to_owned(),
+					..User::default()
+				},
+				false,
+			)
 		}
 	}
 }
@@ -190,4 +210,59 @@ async fn test_fetching_user() {
 	let user = user("spez").await;
 	assert!(user.is_ok());
 	assert!(user.unwrap().karma > 100);
+}
+
+#[cfg(test)]
+mod profile_tests {
+	use super::*;
+
+	fn render_profile(result: Result<User, String>) -> String {
+		let (user, metadata_available) = profile_metadata("example_user", result);
+		UserTemplate {
+			user,
+			metadata_available,
+			posts: Vec::new(),
+			sort: (String::new(), String::new()),
+			ends: (String::new(), String::new()),
+			listing: "overview".into(),
+			prefs: Preferences::default(),
+			url: "/user/example_user".into(),
+			redirect_url: "user/example_user".into(),
+			is_filtered: false,
+			all_posts_filtered: false,
+			all_posts_hidden_nsfw: false,
+			no_posts: true,
+		}
+		.render()
+		.unwrap()
+	}
+
+	#[test]
+	fn blocked_metadata_preserves_navigation_and_avoids_fake_profile_details() {
+		let html = render_profile(Err("Reddit blocked this request (403 Forbidden)".into()));
+		assert!(html.contains("u/example_user"));
+		for listing in ["overview", "comments", "submitted"] {
+			assert!(html.contains(&format!("href=\"/user/example_user/{listing}\"")));
+		}
+		assert!(html.contains("/r/u_example_user/subscribe"));
+		assert!(html.contains("Profile details unavailable"));
+		assert!(!html.contains("/user//"));
+		assert!(!html.contains("id=\"user_details\""));
+		assert!(!html.contains("id=\"user_icon\""));
+	}
+
+	#[test]
+	fn available_metadata_keeps_real_details_including_zero_karma() {
+		let html = render_profile(Ok(User {
+			name: "example_user".into(),
+			title: "Example profile".into(),
+			karma: 0,
+			created: "Nov 01 '26".into(),
+			..User::default()
+		}));
+		assert!(html.contains("Example profile"));
+		assert!(html.contains("id=\"user_details\""));
+		assert!(html.contains("<div>0</div>"));
+		assert!(!html.contains("Profile details unavailable"));
+	}
 }
