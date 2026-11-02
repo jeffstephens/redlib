@@ -110,14 +110,17 @@ body %}
         <center>(Content from u/{{ user.name }} has been filtered)</center>
         {% endif %}
         <div class="panel" id="user">
+            {% if metadata_available && !user.icon.is_empty() %}
             <img
                 loading="lazy"
                 id="user_icon"
                 src="{{ user.icon }}"
                 alt="User icon"
             />
+            {% endif %}
             <h1 id="user_title">{{ user.title }}</h1>
             <p id="user_name">u/{{ user.name }}</p>
+            {% if metadata_available %}
             <div id="user_description">{{ user.description }}</div>
             <div id="user_details">
                 <label>Karma</label>
@@ -125,6 +128,9 @@ body %}
                 <div>{{ user.karma }}</div>
                 <div>{{ user.created }}</div>
             </div>
+            {% else %}
+            <p>Profile details unavailable. Reddit did not provide profile metadata.</p>
+            {% endif %}
             <div id="user_actions">
                 {% let name = ["u_", user.name.as_str()].join("") %}
                 <div id="user_subscription">
