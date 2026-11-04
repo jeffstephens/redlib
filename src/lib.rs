@@ -14,4 +14,5 @@ pub mod subreddit;
 pub mod user;
 pub mod utils;
 
+mod feed;
 mod web;

@@ -32,7 +32,7 @@ fn allowed_url(url: &Url) -> bool {
 		&& url.port_or_known_default() == Some(443)
 		&& url.username().is_empty()
 		&& url.password().is_none()
-		&& ["/svc/shreddit/comments/", "/svc/shreddit/more-comments/"]
+		&& ["/svc/shreddit/comments/", "/svc/shreddit/more-comments/", "/svc/shreddit/community-more-posts/"]
 			.iter()
 			.any(|prefix| url.path().starts_with(prefix))
 }
@@ -45,7 +45,7 @@ pub async fn shreddit_fragment(path: String, cursor: Option<String>) -> Result<S
 			.await
 			.map_err(|_| "Reddit comment request timed out")??;
 		if !result.contains("<title>Reddit - Prove your humanity</title>") {
-			if !result.contains("shreddit-comment") && !result.contains("faceplate-partial") {
+			if !result.contains("shreddit-comment") && !result.contains("faceplate-partial") && !result.contains("shreddit-feed-page-loading") {
 				return Err("Reddit returned an unexpected comment response".into());
 			}
 			return Ok(result);
@@ -175,6 +175,8 @@ mod tests {
 			assert!(fragment_url(path).is_err(), "{path}");
 		}
 		assert!(fragment_url("/svc/shreddit/comments/r/rust/t3_abc?sort=TOP").is_ok());
+		assert!(fragment_url("/svc/shreddit/community-more-posts/new/?name=rust&sort=new").is_ok());
+		assert!(fragment_url("/svc/shreddit/community-more-posts/../../api").is_err());
 		assert!(!allowed_url(&Url::parse("https://evil.example/svc/shreddit/comments/x").unwrap()));
 		assert!(!allowed_url(&Url::parse("http://www.reddit.com/svc/shreddit/comments/x").unwrap()));
 	}

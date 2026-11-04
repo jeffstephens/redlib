@@ -162,8 +162,8 @@ pub async fn community(req: Request<Body>) -> Result<Response<Body>, String> {
 			no_posts: false,
 		}))
 	} else {
-		match Post::fetch(&path, quarantined).await {
-			Ok((mut posts, after)) => {
+		match Post::fetch_with_source(&path, quarantined).await {
+			Ok((mut posts, after, web_feed)) => {
 				let (_, all_posts_filtered) = filter_posts(&mut posts, &filters);
 				let no_posts = posts.is_empty();
 				let all_posts_hidden_nsfw = !no_posts && (posts.iter().all(|p| p.flags.nsfw) && setting(&req, "show_nsfw") != "on");
@@ -175,7 +175,7 @@ pub async fn community(req: Request<Body>) -> Result<Response<Body>, String> {
 					sub,
 					posts,
 					sort: (sort, param(&path, "t").unwrap_or_default()),
-					ends: (param(&path, "after").unwrap_or_default(), after),
+					ends: (if web_feed { String::new() } else { param(&path, "after").unwrap_or_default() }, after),
 					prefs: Preferences::new(&req),
 					url,
 					redirect_url,
