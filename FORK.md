@@ -72,3 +72,23 @@ them, keep local patches small, and remove workarounds when equivalent fixes
 land upstream. Dependency updates require review as well. Two existing warnings
 under current Clippy were fixed by removing a deprecated `core::f64` import
 and a redundant formatting borrow.
+
+## Blocked new/rising feeds
+
+When Reddit returns an HTML 403 for a single-subreddit `new` or `rising` JSON
+listing, use its logged-out web feed fragments for post IDs and ordering, then
+fetch the usual post metadata through individual `/by_id` requests. Batched
+metadata requests are also blocked. Existing post rendering, media proxies,
+filters and NSFW handling continue to use the normal API metadata.
+
+This fallback is limited to 25 posts per page, two concurrent metadata lookups
+across feed pages, and a 30-second metadata budget. Feed results are cached in
+memory for 30 seconds with at most 32 entries; existing API metadata caching
+also applies. The shared web transport retains its response limits, timeout,
+anonymous cookie jar and same-origin redirect checks.
+
+Forward pagination is supported. Use browser Back for previous pages; the web
+endpoint does not expose reverse pagination. Combined feeds and `/r/all` or
+`/r/popular` are not covered. Other sorts and JSON error responses keep their
+existing handling. This workaround requires more upstream requests and may
+still fail if Reddit blocks individual metadata lookups or web fragments.

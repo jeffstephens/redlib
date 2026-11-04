@@ -361,10 +361,20 @@ pub struct Post {
 impl Post {
 	/// Fetch posts of a user or subreddit and return a vector of posts and the "after" value
 	pub async fn fetch(path: &str, quarantine: bool) -> Result<(Vec<Self>, String), String> {
+		Self::fetch_with_source(path, quarantine).await.map(|(posts, after, _)| (posts, after))
+	}
+
+	/// Also report web fallback use, whose pagination supports forward cursors only.
+	pub async fn fetch_with_source(path: &str, quarantine: bool) -> Result<(Vec<Self>, String, bool), String> {
+		let mut web_feed = false;
 		// Send a request to the url
 		let res = match json(path.to_string(), quarantine).await {
 			// If success, receive JSON in response
 			Ok(response) => response,
+			Err(msg) if msg.starts_with("Reddit blocked this request (403 Forbidden)") && crate::feed::supported(path) => {
+				web_feed = true;
+				crate::feed::listing(path.to_owned(), quarantine).await?
+			}
 			// If the Reddit API returns an error, exit this function
 			Err(msg) => return Err(msg),
 		};
@@ -466,7 +476,7 @@ impl Post {
 				out_url: post["data"]["url_overridden_by_dest"].as_str().map(|a| a.to_string()),
 			});
 		}
-		Ok((posts, res["data"]["after"].as_str().unwrap_or_default().to_string()))
+		Ok((posts, res["data"]["after"].as_str().unwrap_or_default().to_string(), web_feed))
 	}
 }
 
