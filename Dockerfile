@@ -2,35 +2,17 @@
 ARG ALPINE_VERSION=3.24
 
 # Use the official Rust image as a stable base for the builder
-FROM --platform=$BUILDPLATFORM rust:alpine${ALPINE_VERSION} AS builder
-
-# Install zig and cargo-zigbuild
-RUN apk add --no-cache zig cargo-zigbuild musl-dev git make perl file
-
+# Build natively on each architecture; browser TLS includes native C/C++ code.
+FROM rust:alpine${ALPINE_VERSION} AS builder
+RUN apk add --no-cache musl-dev git make perl file cmake clang clang-dev ninja go binutils
 RUN rustup component add rust-src
-
 WORKDIR /redlib
 COPY . .
-
-# Injected by Docker Buildx
 ARG TARGETPLATFORM
-
-# Map Docker architectures to Rust/Zig musl triples
 RUN --mount=type=cache,target=/usr/local/cargo/registry,id=reg-${TARGETPLATFORM} \
     --mount=type=cache,target=/redlib/target,id=target-${TARGETPLATFORM} \
-    case "${TARGETPLATFORM}" in \
-        "linux/amd64")    export T="x86_64-unknown-linux-musl" ;; \
-        "linux/arm64")    export T="aarch64-unknown-linux-musl" ;; \
-        "linux/arm/v7")   export T="armv7-unknown-linux-musleabihf" ;; \
-        "linux/arm/v6")   export T="arm-unknown-linux-musleabi" ;; \
-        "linux/riscv64")  export T="riscv64gc-unknown-linux-musl" ;; \
-        *) echo "Unsupported platform: ${TARGETPLATFORM}"; exit 1 ;; \
-    esac && \
-    rustup target add "$T" || true && \
-    cargo zigbuild --locked --release --target "$T" --bin redlib && \
-    cp target/"$T"/release/redlib /usr/local/bin/redlib
-
-# Final verification of the binary architecture
+    cargo build --locked --release --bin redlib && \
+    cp target/release/redlib /usr/local/bin/redlib
 RUN file /usr/local/bin/redlib
 
 ########################

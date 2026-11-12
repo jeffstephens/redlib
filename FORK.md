@@ -92,3 +92,28 @@ endpoint does not expose reverse pagination. Combined feeds and `/r/all` or
 `/r/popular` are not covered. Other sorts and JSON error responses keep their
 existing handling. This workaround requires more upstream requests and may
 still fail if Reddit blocks individual metadata lookups or web fragments.
+
+## GraphQL comments and browser-compatible transport
+
+Comments now use the Android `PostComments` persisted GraphQL operation,
+adapted from [upstream PR #603](https://github.com/redlib-org/redlib/pull/603).
+Sorting, focused context, top-level continuation and nested reply cursors retain
+Redlib's normal rendering. Responses and metadata are cached for 30 seconds
+with a 32-entry comment cache; requests have a 20-second timeout and an 8 MiB
+response limit. Inline comment images must resolve through local media proxies.
+
+GraphQL and web fragments use pinned wreq/wreq-util versions with Chrome TLS
+emulation, verified certificates, and manual restricted redirects. Other JSON
+and media requests retain the existing Hyper client. Linux isolates BoringSSL
+symbols from the existing OpenSSL dependency; macOS uses its native TLS backend.
+
+When new/rising web fragments are blocked, use `SubredditFeedElements` for IDs,
+ordering and forward cursors, adapted from polak14's upstream-linked GraphQL
+patch at `29f18352cf54be4ffe579f773552acd0c45cdd08`. Existing metadata lookups,
+page/concurrency limits and combined-feed restrictions still apply.
+
+Images are built on native AMD64 and ARM64 runners because the browser TLS
+library includes native C/C++ code. Only after both builds succeed is the
+sortable multi-architecture release tag published. Intermediate architecture
+suffix tags are not release tags. Persisted operation hashes and browser
+fingerprints remain external dependencies that Reddit may block or change.

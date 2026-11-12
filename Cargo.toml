@@ -65,7 +65,12 @@ fake_user_agent = "0.2.2"
 scraper = { version = "0.29", default-features = false }
 ammonia = "4.1"
 cookie_store = { version = "0.22.1", default-features = false }
+wreq = { version = "=6.0.0-rc.31", features = ["json", "gzip", "stream"] }
+wreq-util = "=3.0.0-rc.14"
 
+
+[target.'cfg(target_os = "linux")'.dependencies]
+wreq = { version = "=6.0.0-rc.31", features = ["prefix-symbols"] }
 
 [dev-dependencies]
 lipsum = "0.9.0"
