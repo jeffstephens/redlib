@@ -28,6 +28,8 @@ COPY --from=builder /usr/local/bin/redlib /usr/local/bin/redlib
 # Security: Non-root user
 RUN adduser --home /nonexistent --no-create-home --disabled-password redlib
 USER redlib
+# Check the final runtime loader and shared libraries before publication.
+RUN /usr/local/bin/redlib --version
 
 EXPOSE 8080
 HEALTHCHECK --interval=1m --timeout=3s CMD wget --spider -q http://localhost:8080/settings || exit 1
