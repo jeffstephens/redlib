@@ -5,6 +5,9 @@ ARG ALPINE_VERSION=3.24
 # Build natively on each architecture; browser TLS includes native C/C++ code.
 FROM rust:alpine${ALPINE_VERSION} AS builder
 RUN apk add --no-cache musl-dev g++ git make perl file cmake clang clang-dev ninja go binutils
+# bindgen loads libclang dynamically, including from Cargo build scripts.
+# Alpine's default static CRT prevents dlopen; the runtime supplies musl.
+ENV RUSTFLAGS="-C target-feature=-crt-static"
 RUN rustup component add rust-src
 WORKDIR /redlib
 COPY . .
@@ -25,6 +28,8 @@ COPY --from=builder /usr/local/bin/redlib /usr/local/bin/redlib
 # Security: Non-root user
 RUN adduser --home /nonexistent --no-create-home --disabled-password redlib
 USER redlib
+# Check the final runtime loader and shared libraries before publication.
+RUN /usr/local/bin/redlib --version
 
 EXPOSE 8080
 HEALTHCHECK --interval=1m --timeout=3s CMD wget --spider -q http://localhost:8080/settings || exit 1
