@@ -4,7 +4,7 @@ ARG ALPINE_VERSION=3.24
 # Use the official Rust image as a stable base for the builder
 # Build natively on each architecture; browser TLS includes native C/C++ code.
 FROM rust:alpine${ALPINE_VERSION} AS builder
-RUN apk add --no-cache musl-dev git make perl file cmake clang clang-dev ninja go binutils
+RUN apk add --no-cache musl-dev g++ git make perl file cmake clang clang-dev ninja go binutils
 RUN rustup component add rust-src
 WORKDIR /redlib
 COPY . .
