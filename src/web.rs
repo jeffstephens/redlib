@@ -1,13 +1,13 @@
 //! Bounded, logged-out web requests for comment fragments. No API bearer or
 //! caller cookies are forwarded to this separate in-memory session.
-use crate::client::CLIENT;
+use crate::browser::CLIENT;
 use cookie_store::CookieStore;
-use hyper::{body::HttpBody, header, Body, Request};
 use std::io::Read;
 use std::sync::{LazyLock, Mutex};
 use tokio::sync::Semaphore;
 use tokio::time::{timeout, Duration};
 use url::Url;
+use wreq::header;
 
 const BASE: &str = "https://www.reddit.com";
 const MAX_BODY: usize = 8 * 1024 * 1024;
@@ -75,9 +75,8 @@ async fn fetch(mut url: Url, mut cursor: Option<String>) -> Result<String, Strin
 		} else {
 			String::new()
 		};
-		let mut request = Request::builder()
-			.method(if cursor.is_some() { "POST" } else { "GET" })
-			.uri(url.as_str())
+		let mut request = CLIENT
+			.request(if cursor.is_some() { wreq::Method::POST } else { wreq::Method::GET }, url.as_str())
 			.header(header::USER_AGENT, USER_AGENT)
 			.header(header::ACCEPT, "text/vnd.reddit.partial+html, text/html;q=0.9")
 			.header(header::ACCEPT_LANGUAGE, "en-US,en;q=0.9")
@@ -90,10 +89,8 @@ async fn fetch(mut url: Url, mut cursor: Option<String>) -> Result<String, Strin
 		if cursor.is_some() {
 			request = request.header(header::ORIGIN, BASE).header(header::CONTENT_TYPE, "application/x-www-form-urlencoded");
 		}
-		let request = request
-			.body(if cursor.is_some() { Body::from(body) } else { Body::empty() })
-			.map_err(|_| "Invalid comment request")?;
-		let mut response = CLIENT.request(request).await.map_err(|error| format!("Couldn't fetch Reddit comments: {error}"))?;
+		let request = request.body(body);
+		let response = request.send().await.map_err(|error| format!("Couldn't fetch Reddit fragments: {error}"))?;
 		let received = response
 			.headers()
 			.get_all(header::SET_COOKIE)
@@ -136,14 +133,7 @@ async fn fetch(mut url: Url, mut cursor: Option<String>) -> Result<String, Strin
 			.and_then(|value| value.to_str().ok())
 			.unwrap_or("identity")
 			.to_owned();
-		let mut data = Vec::new();
-		while let Some(chunk) = response.body_mut().data().await {
-			let chunk = chunk.map_err(|_| "Couldn't read Reddit comments")?;
-			if data.len() + chunk.len() > MAX_BODY {
-				return Err("Reddit comment response is too large".into());
-			}
-			data.extend_from_slice(&chunk);
-		}
+		let mut data = crate::browser::body(response).await?;
 		if encoding == "gzip" {
 			let decoder = libflate::gzip::Decoder::new(data.as_slice()).map_err(|_| "Invalid compressed comment response")?;
 			let mut decoded = Vec::new();

@@ -54,8 +54,10 @@ pub fn supported(path: &str) -> bool {
 #[cached(size = 32, time = 30, result = true)]
 pub async fn listing(path: String, quarantine: bool) -> Result<Value, String> {
 	let request = FeedRequest::parse(&path).ok_or("This feed cannot use the web fallback")?;
-	let html = crate::client::shreddit_fragment(request.fragment, None).await?;
-	let (mut ids, mut after) = parse_fragment(&html)?;
+	let (mut ids, mut after) = match crate::client::shreddit_fragment(request.fragment.clone(), None).await {
+		Ok(html) => parse_fragment(&html)?,
+		Err(_) => graphql_ids(&request).await?,
+	};
 	if ids.len() > request.limit {
 		ids.truncate(request.limit);
 		after = ids.last().cloned();
@@ -67,6 +69,47 @@ pub async fn listing(path: String, quarantine: bool) -> Result<Value, String> {
 		.await
 		.map_err(|_| "Reddit feed metadata timed out")??;
 	ordered_listing(&ids, after, metadata)
+}
+
+// SubredditFeedElements persisted operation from polak14's upstream-linked
+// GraphQL patch (29f18352cf54be4ffe579f773552acd0c45cdd08).
+async fn graphql_ids(request: &FeedRequest) -> Result<(Vec<String>, Option<String>), String> {
+	let (_, query) = request.fragment.split_once('?').ok_or("Invalid feed request")?;
+	let params: HashMap<_, _> = url::form_urlencoded::parse(query.as_bytes()).into_owned().collect();
+	let mut variables = json!({"subredditName":params["name"],"sort":params["sort"].to_uppercase(),"pageSize":request.limit,"includeSubredditInPosts":true});
+	if let Some(after) = params.get("after") {
+		variables["after"] = after.clone().into();
+	}
+	let body = json!({"operationName":"SubredditFeedElements","variables":variables,"extensions":{"persistedQuery":{"version":1,"sha256Hash":"97046e2a48050f10a507db354a8da60955ffccb586dcf63163bdfc6610d5cf7a"}}});
+	let response = crate::gql::query(&body).await?;
+	graphql_page(&response)
+}
+
+fn graphql_page(response: &Value) -> Result<(Vec<String>, Option<String>), String> {
+	let feed = &response["data"]["postFeed"];
+	if feed["__typename"] != "Subreddit" {
+		return Err("Reddit did not provide the requested subreddit feed".into());
+	}
+	let elements = &feed["elements"];
+	let edges = elements["edges"].as_array().ok_or("Reddit returned an invalid feed")?;
+	let mut seen = HashSet::new();
+	let ids = edges
+		.iter()
+		.filter_map(|e| e["node"]["id"].as_str())
+		.filter(|id| post_id(id) && seen.insert((*id).to_owned()))
+		.take(100)
+		.map(str::to_owned)
+		.collect();
+	let after = if elements["pageInfo"]["hasNextPage"] == false {
+		None
+	} else {
+		elements["pageInfo"]["endCursor"]
+			.as_str()
+			.and_then(|c| STANDARD.decode(c).ok())
+			.and_then(|b| String::from_utf8(b).ok())
+			.filter(|id| post_id(id))
+	};
+	Ok((ids, after))
 }
 
 // Limit metadata concurrency across simultaneous feed pages as well as within one page.
@@ -139,6 +182,13 @@ fn ordered_listing(ids: &[String], after: Option<String>, metadata: Value) -> Re
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[test]
+	fn graphql_feed_keeps_order_skips_recommendations_and_decodes_cursor() {
+		let response = json!({"data":{"postFeed":{"__typename":"Subreddit","elements":{"edges":[{"node":{"id":"t3_b"}},{"node":{"id":"recommendation"}},{"node":{"id":"t3_a"}},{"node":{"id":"t3_b"}}],"pageInfo":{"hasNextPage":true,"endCursor":"dDNfYQ=="}}}}});
+		assert_eq!(graphql_page(&response).unwrap(), (vec!["t3_b".into(), "t3_a".into()], Some("t3_a".into())));
+		assert!(graphql_page(&json!({"data":{"postFeed":{"__typename":"UnavailableSubreddit"}}})).is_err());
+	}
+
 	#[test]
 	fn routes_and_cursors_are_bounded_and_preserve_sort() {
 		let request = FeedRequest::parse("/r/rust/new.json?after=t3_abc&raw_json=1").unwrap();

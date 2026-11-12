@@ -22,6 +22,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+      - name: Install browser TLS build dependencies
+        run: sudo apt-get update && sudo apt-get install -y cmake libclang-dev ninja-build golang-go
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all -- --check
       - run: cargo clippy --locked --all-targets -- -D warnings
@@ -40,40 +42,71 @@ jobs:
           --skip user::test_fetching_user
           --skip utils::test_fetching_
 
-  publish:
+  prepare:
     needs: verify
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.tag.outputs.value }}
+    steps:
+      - name: Choose immutable tag
+        id: tag
+        run: echo "value=main-$(date -u +%s)-${GITHUB_SHA::12}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
+
+  publish:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
       packages: write
-    outputs:
-      digest: ${{ steps.build.outputs.digest }}
     steps:
       - uses: actions/checkout@v4
-      - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Choose immutable tag
-        id: tag
-        run: echo "value=main-$(date -u +%s)-${GITHUB_SHA::12}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
       - uses: docker/build-push-action@v6
-        id: build
         with:
           context: .
           push: true
-          platforms: linux/amd64,linux/arm64
-          tags: ghcr.io/${{ github.repository }}:${{ steps.tag.outputs.value }}
+          platforms: linux/${{ matrix.arch }}
+          tags: ghcr.io/${{ github.repository }}:${{ needs.prepare.outputs.tag }}-${{ matrix.arch }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.licenses=AGPL-3.0-only
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-      - name: Record deployment reference
+          cache-from: type=gha,scope=redlib-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=redlib-${{ matrix.arch }}
+
+  release:
+    needs: [prepare, publish]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish multi-architecture index
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}
+          TAG: ${{ needs.prepare.outputs.tag }}
         run: |
-          echo 'Image: ghcr.io/${{ github.repository }}:${{ steps.tag.outputs.value }}@${{ steps.build.outputs.digest }}' >> "$GITHUB_STEP_SUMMARY"
+          docker buildx imagetools create --tag "$IMAGE:$TAG" "$IMAGE:$TAG-amd64" "$IMAGE:$TAG-arm64"
+          digest=$(docker buildx imagetools inspect "$IMAGE:$TAG" | awk '/^Digest:/ {print $2; exit}')
+          test -n "$digest"
+          echo "Image: $IMAGE:$TAG@$digest" >> "$GITHUB_STEP_SUMMARY"
