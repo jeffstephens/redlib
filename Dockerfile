@@ -19,7 +19,7 @@ RUN file /usr/local/bin/redlib
 ## Release Image
 ########################
 FROM alpine:${ALPINE_VERSION} AS release
-RUN apk add --no-cache ca-certificates
+RUN apk add --no-cache ca-certificates libstdc++
 COPY --from=builder /usr/local/bin/redlib /usr/local/bin/redlib
 
 # Security: Non-root user
