@@ -19,3 +19,5 @@ mod web;
 
 mod browser;
 mod gql;
+
+pub mod archive;
