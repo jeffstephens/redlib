@@ -335,7 +335,12 @@ async fn fetch_inner(user: &str, kind: &str, source: Source, cursor: &Cursor) ->
 	}
 	let records: Vec<_> = rows.iter().filter_map(|row| normalize(row, source, kind, user)).collect();
 	if rows.len() != records.len() {
-		log::debug!("Archive {} {kind}: dropped {} of {} rows during normalization", source.label(), rows.len() - records.len(), rows.len());
+		log::debug!(
+			"Archive {} {kind}: dropped {} of {} rows during normalization",
+			source.label(),
+			rows.len() - records.len(),
+			rows.len()
+		);
 	}
 	if !rows.is_empty() && records.is_empty() {
 		return Err("Provider returned no matching readable records".into());
