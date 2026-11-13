@@ -36,7 +36,8 @@ API responses or archived text.
 | PullPush | HTTP 526 | HTTP 526 | Unavailable during this check; no retries or disabled certificate checks. |
 
 The executable prototype still returns Arctic Shift's results when PullPush
-fails, and reports `partial: true` plus per-provider errors. It normalizes
+fails, and reports `partial: true` plus per-provider errors. Successful PullPush
+response parsing and coverage remain unverified while that service is down. It normalizes
 metadata, distinguishes post/comment IDs, deduplicates with source provenance,
 and selects the newest captured metadata. It deliberately emits no body/title
 text, never downloads images, writes no data files and performs no analytics.
@@ -47,7 +48,7 @@ python3 spikes/archive-history/probe.py PresidentObama --kind comments --limit 3
 python3 spikes/archive-history/probe.py PresidentObama --kind posts --provider arctic_shift --limit 3
 ```
 
-Each request has a 12-second timeout and 2 MiB read limit. Page size is capped at
+Each request has a 12-second socket timeout and 2 MiB read limit. Page size is capped at
 25 and provider fanout at two. A 429 is returned as a rate-limit state with its
 Retry-After value; there is no retry loop. Running the probe is the explicit
 user action that sends the account name to the selected providers.
