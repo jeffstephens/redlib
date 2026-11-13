@@ -231,9 +231,53 @@ fn merge(pages: Vec<Record>) -> Vec<Record> {
 }
 #[cached(size = 64, time = 60, result = true)]
 async fn fetch(user: String, kind: String, source: Source, cursor: Cursor) -> Result<ProviderPage, String> {
-	tokio::time::timeout(Duration::from_secs(15), fetch_inner(&user, &kind, source, &cursor))
+	let started = Instant::now();
+	let result = tokio::time::timeout(Duration::from_secs(15), fetch_inner(&user, &kind, source, &cursor))
 		.await
-		.map_err(|_| "Provider timed out; try again later".to_string())?
+		.unwrap_or_else(|_| Err("Provider timed out; try again later".to_string()));
+	let elapsed = started.elapsed().as_millis();
+	match &result {
+		Ok(page) => log::info!(
+			"Archive {} {kind} for u/{user} (before={:?}): {} records in {elapsed}ms{}",
+			source.label(),
+			cursor.before,
+			page.records.len(),
+			if page.stalled { ", paging stalled" } else { "" }
+		),
+		Err(e) => log::warn!("Archive {} {kind} for u/{user} (before={:?}) failed after {elapsed}ms: {e}", source.label(), cursor.before),
+	}
+	result
+}
+/// Reads at most `max` bytes of a response body.
+async fn read_capped(response: wreq::Response, max: usize) -> Result<Vec<u8>, &'static str> {
+	use futures_lite::StreamExt;
+	let mut stream = std::pin::pin!(response.bytes_stream());
+	let mut bytes = Vec::new();
+	while let Some(chunk) = stream.next().await {
+		let chunk = chunk.map_err(|_| "Provider response failed")?;
+		if bytes.len() + chunk.len() > max {
+			return Err("Provider response is too large");
+		}
+		bytes.extend_from_slice(&chunk);
+	}
+	Ok(bytes)
+}
+/// Extracts a short, loggable reason from a provider error body (JSON `error` field or raw text).
+fn error_detail(body: &[u8]) -> String {
+	let text = String::from_utf8_lossy(body);
+	let detail = serde_json::from_str::<Value>(&text)
+		.ok()
+		.and_then(|v| v["error"].as_str().map(str::to_owned))
+		.unwrap_or_else(|| text.split_whitespace().collect::<Vec<_>>().join(" "));
+	bounded(&detail, 200)
+}
+/// User-facing message for a non-success provider status.
+fn status_message(status: u16, detail: &str) -> String {
+	match status {
+		422 if detail.to_ascii_lowercase().contains("timeout") => format!("Provider query timed out (HTTP {status}); try again in a minute"),
+		520..=530 => format!("Provider is down (HTTP {status}); this is an outage on their side"),
+		_ => format!("Unavailable (HTTP {status})"),
+	}
 }
 async fn fetch_inner(user: &str, kind: &str, source: Source, cursor: &Cursor) -> Result<ProviderPage, String> {
 	if let Some(until) = BACKOFF.lock().map_err(|_| "Provider is unavailable")?.get(&source).copied() {
@@ -255,7 +299,10 @@ async fn fetch_inner(user: &str, kind: &str, source: Source, cursor: &Cursor) ->
 		.header("User-Agent", "RedlibArchive/0.1")
 		.send()
 		.await
-		.map_err(|_| "Provider connection failed; try again later")?;
+		.map_err(|e| {
+			log::warn!("Archive {} {kind} request error: {e}", source.label());
+			"Provider connection failed; try again later"
+		})?;
 	if response.status().as_u16() == 429 {
 		let seconds = response
 			.headers()
@@ -268,27 +315,33 @@ async fn fetch_inner(user: &str, kind: &str, source: Source, cursor: &Cursor) ->
 			.lock()
 			.map_err(|_| "Provider is unavailable")?
 			.insert(source, Instant::now() + Duration::from_secs(seconds));
+		log::warn!("Archive {} rate limited; backing off {seconds}s", source.label());
 		return Err(format!("Rate limited; retry in {seconds} seconds"));
 	}
+	let status = response.status().as_u16();
 	if !response.status().is_success() {
-		return Err(format!("Unavailable (HTTP {})", response.status().as_u16()));
+		let detail = read_capped(response, 4096).await.map(|b| error_detail(&b)).unwrap_or_default();
+		log::warn!("Archive {} {kind} returned HTTP {status}: {detail}", source.label());
+		return Err(status_message(status, &detail));
 	}
-	let mut stream = std::pin::pin!(response.bytes_stream());
-	let mut bytes = Vec::new();
-	use futures_lite::StreamExt;
-	while let Some(chunk) = stream.next().await {
-		let chunk = chunk.map_err(|_| "Provider response failed")?;
-		if bytes.len() + chunk.len() > 2 * 1024 * 1024 {
-			return Err("Provider response is too large".into());
-		}
-		bytes.extend_from_slice(&chunk);
-	}
-	let value: Value = serde_json::from_slice(&bytes).map_err(|_| "Provider returned an invalid response")?;
+	let bytes = read_capped(response, 2 * 1024 * 1024).await?;
+	let value: Value = serde_json::from_slice(&bytes).map_err(|_| {
+		log::warn!("Archive {} {kind} returned invalid JSON: {}", source.label(), error_detail(&bytes));
+		"Provider returned an invalid response"
+	})?;
 	let rows = value["data"].as_array().ok_or("Provider returned an invalid listing")?;
 	if rows.len() > FETCH_LIMIT {
 		return Err("Provider returned an oversized listing".into());
 	}
 	let records: Vec<_> = rows.iter().filter_map(|row| normalize(row, source, kind, user)).collect();
+	if rows.len() != records.len() {
+		log::debug!(
+			"Archive {} {kind}: dropped {} of {} rows during normalization",
+			source.label(),
+			rows.len() - records.len(),
+			rows.len()
+		);
+	}
 	if !rows.is_empty() && records.is_empty() {
 		return Err("Provider returned no matching readable records".into());
 	}
@@ -607,6 +660,15 @@ mod tests {
 		assert!(html.contains("HTTP 526"));
 		assert!(html.contains("Arctic Shift"));
 		assert!(html.contains("Archived snapshot"));
+	}
+	#[test]
+	fn provider_errors_are_explained() {
+		let detail = error_detail(br#"{"data":null,"error":"Timeout. Maybe slow down a bit"}"#);
+		assert_eq!(detail, "Timeout. Maybe slow down a bit");
+		assert!(status_message(422, &detail).contains("timed out"));
+		assert_eq!(error_detail(b"error code: 526\n"), "error code: 526");
+		assert!(status_message(526, "").contains("outage"));
+		assert_eq!(status_message(500, ""), "Unavailable (HTTP 500)");
 	}
 	#[test]
 	fn text_bounds_preserve_unicode() {
