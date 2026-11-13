@@ -23,7 +23,7 @@ static BACKOFF: LazyLock<Mutex<HashMap<Source, Instant>>> = LazyLock::new(|| Mut
 static CLIENT: LazyLock<wreq::Client> = LazyLock::new(|| {
 	wreq::Client::builder()
 		.redirect(wreq::redirect::Policy::none())
-		.timeout(Duration::from_secs(12))
+		.timeout(Duration::from_secs(25))
 		.build()
 		.expect("archive client")
 });
@@ -232,7 +232,7 @@ fn merge(pages: Vec<Record>) -> Vec<Record> {
 #[cached(size = 64, time = 60, result = true)]
 async fn fetch(user: String, kind: String, source: Source, cursor: Cursor) -> Result<ProviderPage, String> {
 	let started = Instant::now();
-	let result = tokio::time::timeout(Duration::from_secs(15), fetch_inner(&user, &kind, source, &cursor))
+	let result = tokio::time::timeout(Duration::from_secs(30), fetch_inner(&user, &kind, source, &cursor))
 		.await
 		.unwrap_or_else(|_| Err("Provider timed out; try again later".to_string()));
 	let elapsed = started.elapsed().as_millis();
