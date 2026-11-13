@@ -117,3 +117,9 @@ library includes native C/C++ code. Only after both builds succeed is the
 sortable multi-architecture release tag published. Intermediate architecture
 suffix tags are not release tags. Persisted operation hashes and browser
 fingerprints remain external dependencies that Reddit may block or change.
+
+Profile metadata uses the upstream-linked `UserProfileDetails` persisted
+operation through the same verified browser transport. Names, karma, creation
+time, avatars, descriptions and NSFW flags are converted to the existing API
+shape, with 32 cached profiles for 30 seconds. Unavailable or malformed profile
+responses retain the explicit unavailable notice and correctly addressed tabs.
