@@ -83,7 +83,10 @@ def fetch(source, kind, username, limit, before=None):
             payload = response.read(MAX_BODY + 1)
             if len(payload) > MAX_BODY:
                 raise ValueError("Archive response exceeds 2 MiB")
-            rows = json.loads(payload).get("data")
+            listing = json.loads(payload)
+            if not isinstance(listing, dict):
+                raise ValueError("Archive returned an invalid listing")
+            rows = listing.get("data")
             if not isinstance(rows, list):
                 raise ValueError("Archive returned an invalid listing")
             records = [item for row in rows[:limit] if isinstance(row, dict)

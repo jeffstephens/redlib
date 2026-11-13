@@ -1,5 +1,7 @@
 import unittest
-from probe import merge, normalize, validate
+from probe import fetch, merge, normalize, validate
+from unittest.mock import patch
+import io
 
 class ProbeTests(unittest.TestCase):
     def test_dedup_preserves_sources_and_newest_snapshot(self):
@@ -22,5 +24,14 @@ class ProbeTests(unittest.TestCase):
         self.assertIsNone(normalize({"id":"../bad","author":"example","created_utc":100},"a","posts","example"))
         for name,limit in [("../bad",3),("example",0),("example",1000)]:
             with self.assertRaises(ValueError): validate(name,limit)
+
+    def test_malformed_provider_is_unavailable_not_an_empty_success(self):
+        class Response(io.BytesIO):
+            status=200
+            def geturl(self):return "https://arctic-shift.photon-reddit.com/api/comments/search"
+        with patch("urllib.request.urlopen",return_value=Response(b"[]")):
+            result=fetch("arctic_shift","comments","example",3)
+        self.assertEqual(result["status"],"unavailable")
+        self.assertEqual(result["records"],[])
 
 if __name__ == "__main__":unittest.main()
