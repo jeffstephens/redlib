@@ -55,6 +55,33 @@ pub async fn thread(path: String, quarantine: bool) -> Result<Value, String> {
 	Ok(json_value!([post, comments]))
 }
 
+/// UserProfileDetails from polak14's upstream-linked GraphQL feed patch:
+/// 29f18352cf54be4ffe579f773552acd0c45cdd08 (AGPL-3.0-only).
+#[cached(size = 32, time = 30, result = true)]
+pub async fn profile(name: String) -> Result<Value, String> {
+	if name.is_empty() || name.len() > 32 || !name.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-')) {
+		return Err("Invalid user name".into());
+	}
+	let body = json_value!({"operationName":"UserProfileDetails","variables":{"username":name},"extensions":{"persistedQuery":{"version":1,"sha256Hash":"4822704f40348a38e37626b62f7f2a4e4af88aa5ab90f271a0c539db7ab2ac2f"}}});
+	profile_listing(&query(&body).await?)
+}
+
+fn profile_listing(response: &Value) -> Result<Value, String> {
+	let user = &response["data"]["redditorInfoByName"];
+	if user["__typename"] != "Redditor" {
+		return Err("User profile unavailable".into());
+	}
+	if user["isSuspended"] == true {
+		return Err("suspended".into());
+	}
+	let profile = &user["profileInfo"];
+	let name = user["name"].as_str().filter(|name| !name.is_empty()).ok_or("Reddit returned invalid profile metadata")?;
+	let created = timestamp(&profile["createdAt"]).ok_or("Reddit did not provide profile creation time")?;
+	Ok(
+		json_value!({"kind":"t2","data":{"name":name,"created":created,"total_karma":user["karma"]["total"],"subreddit":{"title":profile["title"],"icon_img":user["icon"]["url"],"banner_img":profile["styles"]["profileBanner"],"public_description":profile["publicDescriptionText"],"over_18":profile["isNsfw"]==true}}}),
+	)
+}
+
 fn sort_type(sort: &str) -> Option<&'static str> {
 	Some(match sort {
 		"confidence" | "best" => "CONFIDENCE",
@@ -434,6 +461,24 @@ fn table(node: &Value, media: &Value) -> String {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn profile_metadata_maps_identity_fields_and_nsfw_status() {
+		let response = json_value!({"data":{"redditorInfoByName":{"__typename":"Redditor","name":"example_user","karma":{"total":0},"icon":{"url":"https://styles.redditmedia.com/icon.png"},"profileInfo":{"createdAt":"2026-11-12T12:00:00.000+0000","title":"Example","publicDescriptionText":"Biography","isNsfw":true,"styles":{"profileBanner":"https://styles.redditmedia.com/banner.png"}}}}});
+		let converted = profile_listing(&response).unwrap();
+		assert_eq!(converted["data"]["name"], "example_user");
+		assert_eq!(converted["data"]["total_karma"], 0);
+		assert!(converted["data"]["created"].as_f64().unwrap() > 0.0);
+		assert_eq!(converted["data"]["subreddit"]["over_18"], true);
+		assert_eq!(converted["data"]["subreddit"]["public_description"], "Biography");
+	}
+
+	#[test]
+	fn absent_or_malformed_profile_does_not_become_fake_metadata() {
+		assert!(profile_listing(&json_value!({"data":{"redditorInfoByName":null}})).is_err());
+		assert!(profile_listing(&json_value!({"data":{"redditorInfoByName":{"__typename":"UnavailableRedditor"}}})).is_err());
+		assert!(profile_listing(&json_value!({"data":{"redditorInfoByName":{"__typename":"Redditor","name":"example_user"}}})).is_err());
+	}
 
 	#[test]
 	fn post_paths_do_not_confuse_titles_or_queries_with_ids() {

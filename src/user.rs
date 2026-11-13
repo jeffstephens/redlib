@@ -1,7 +1,6 @@
 #![allow(clippy::cmp_owned)]
 
 // CRATES
-use crate::client::json;
 use crate::server::RequestExt;
 use crate::utils::{error, filter_posts, format_url, get_filters, nsfw_landing, param, setting, template, Post, Preferences, User};
 use crate::{config, utils};
@@ -128,11 +127,7 @@ fn profile_metadata(name: &str, result: Result<User, String>) -> (User, bool) {
 
 // USER
 async fn user(name: &str) -> Result<User, String> {
-	// Build the Reddit JSON API path
-	let path: String = format!("/user/{name}/about.json?raw_json=1");
-
-	// Send a request to the url
-	json(path, false).await.map(|res| {
+	crate::gql::profile(name.to_owned()).await.map(|res| {
 		// Grab creation date as unix timestamp
 		let created_unix = res["data"]["created"].as_f64().unwrap_or(0.0).round() as i64;
 		let created = OffsetDateTime::from_unix_timestamp(created_unix).unwrap_or(OffsetDateTime::UNIX_EPOCH);
