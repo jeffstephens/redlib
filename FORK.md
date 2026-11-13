@@ -123,3 +123,29 @@ operation through the same verified browser transport. Names, karma, creation
 time, avatars, descriptions and NSFW flags are converted to the existing API
 shape, with 32 cached profiles for 30 seconds. Unavailable or malformed profile
 responses retain the explicit unavailable notice and correctly addressed tabs.
+
+## Experimental archived history
+
+Set `REDLIB_ENABLE_ARCHIVES=on` to expose **Archived history** on profiles, or
+visit `/user/<username>/archive`. Opening a profile or this landing page does
+not contact archives. Submitting the form sends the username to the selected
+Arctic Shift and/or PullPush API from the instance, without Reddit credentials.
+This does not unlock private data: only previously indexed public snapshots
+can be returned, and coverage, content, availability and capture dates vary.
+
+Posts and comments are separate searches. Results label source and capture time;
+conflicting snapshots are marked. Each provider contributes up to 25 records
+per page. Paging overlaps timestamp boundaries and explicitly stops if an API
+cannot progress without dropping tied records. Provider failures preserve
+available results. There are no automatic retries; rate limits cause backoff.
+Requests have a 15-second overall deadline, a 2 MiB response limit, and at most
+two concurrent provider requests. Up to 64 successful pages are held in memory
+for 60 seconds. There is no database, disk cache or archive media download.
+
+Archived text is escaped plain text, bounded to 8 KiB per record. Community and
+NSFW filters apply; unknown ratings require explicit inclusion and remain hidden
+in SFW-only instances. Source exclusions are respected as returned by their APIs.
+Operators may additionally set environment-only `REDLIB_ARCHIVE_EXCLUDED_USERS`
+to a comma-separated username list; this list is not published in instance info.
+Rosint's own exclusions are not a shared provider removal list. Removal links
+on the archive page point to the original providers.

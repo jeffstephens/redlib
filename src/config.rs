@@ -100,6 +100,9 @@ pub struct Config {
 	#[serde(alias = "LIBREDDIT_PUSHSHIFT_FRONTEND")]
 	pub(crate) pushshift: Option<String>,
 
+	#[serde(rename = "REDLIB_ENABLE_ARCHIVES")]
+	pub(crate) enable_archives: Option<String>,
+
 	#[serde(rename = "REDLIB_ENABLE_RSS")]
 	pub(crate) enable_rss: Option<String>,
 
@@ -154,6 +157,7 @@ impl Config {
 			robots_disable_indexing: parse("REDLIB_ROBOTS_DISABLE_INDEXING"),
 			pushshift: parse("REDLIB_PUSHSHIFT_FRONTEND"),
 			enable_rss: parse("REDLIB_ENABLE_RSS"),
+			enable_archives: parse("REDLIB_ENABLE_ARCHIVES"),
 			full_url: parse("REDLIB_FULL_URL"),
 			default_remove_default_feeds: parse("REDLIB_DEFAULT_REMOVE_DEFAULT_FEEDS"),
 		}
@@ -184,6 +188,7 @@ fn get_setting_from_config(name: &str, config: &Config) -> Option<String> {
 		"REDLIB_ROBOTS_DISABLE_INDEXING" => config.robots_disable_indexing.clone(),
 		"REDLIB_PUSHSHIFT_FRONTEND" => config.pushshift.clone(),
 		"REDLIB_ENABLE_RSS" => config.enable_rss.clone(),
+		"REDLIB_ENABLE_ARCHIVES" => config.enable_archives.clone(),
 		"REDLIB_FULL_URL" => config.full_url.clone(),
 		"REDLIB_DEFAULT_REMOVE_DEFAULT_FEEDS" => config.default_remove_default_feeds.clone(),
 		_ => None,

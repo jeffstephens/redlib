@@ -127,6 +127,7 @@ impl InstanceInfo {
 				["SFW only", &convert(&self.config.sfw_only)],
 				["Pushshift frontend", &convert(&self.config.pushshift)],
 				["RSS enabled", &convert(&self.config.enable_rss)],
+				["Archives enabled", &convert(&self.config.enable_archives)],
 				["Full URL", &convert(&self.config.full_url)],
 				["Remove default feeds", &convert(&self.config.default_remove_default_feeds)],
 				//TODO: fallback to crate::config::DEFAULT_PUSHSHIFT_FRONTEND
@@ -169,6 +170,7 @@ impl InstanceInfo {
 				SFW only: {:?}\n
 				Pushshift frontend: {:?}\n
 				RSS enabled: {:?}\n
+                    Archives enabled: {:?}\n
 				Full URL: {:?}\n
 				Remove default feeds: {:?}\n
                 Config:\n
@@ -195,10 +197,11 @@ impl InstanceInfo {
 					self.deploy_unix_ts,
 					self.compile_mode,
 					self.config.sfw_only,
+					self.config.pushshift,
 					self.config.enable_rss,
+					self.config.enable_archives,
 					self.config.full_url,
 					self.config.default_remove_default_feeds,
-					self.config.pushshift,
 					self.config.banner,
 					self.config.default_hide_awards,
 					self.config.default_hide_score,

@@ -2146,3 +2146,19 @@ th {
     background-color: var(--accent);
     color: var(--text);
 }
+
+/* Independent archive snapshots are kept separate from live history. */
+.archive-page { display: block; max-width: 960px; margin: 1.5rem auto; padding: 0 1rem; }
+.archive-page h1 { font-size: 1.6rem; margin-bottom: .5rem; }
+.archive-page p { margin: .65rem 0; line-height: 1.5; }
+.archive-page .panel { padding: 1rem; margin: 1rem 0; }
+.archive-form { display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; margin-top: 1rem; }
+.archive-form label { display: flex; gap: .5rem; align-items: center; }
+.archive-form select, .archive-form button { padding: .5rem; }
+.archive-record h2 { font-size: 1.15rem; margin: .7rem 0; overflow-wrap: anywhere; }
+.archive-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; }
+.archive-sources { display: flex; flex-wrap: wrap; gap: .5rem; font-size: .85rem; }
+.archive-sources span { border: 1px solid currentColor; border-radius: .3rem; padding: .15rem .4rem; }
+.archive-warning { color: var(--accent, #b7791f); }
+.archive-next { display: inline-block; padding: .65rem 1rem; border: 1px solid currentColor; border-radius: .3rem; }
+.archive-link { display: inline-block; padding: .5rem; }

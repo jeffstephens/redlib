@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Archived history for u/{{ username }} - Redlib{% endblock %}
+{% block body %}
+<main class="archive-page">
+ <header><h1>Archived history</h1><p>u/{{ username }} · <a href="/user/{{ username }}">Back to live profile</a></p></header>
+ <section class="panel archive-intro">
+  <p>Search snapshots of public posts and comments captured by independent archives. Results may be incomplete, out of date, or no longer visible on Reddit.</p>
+  <p>Searching sends this username from the instance to the selected sources. Your browser cookies and Reddit session are not sent.</p>
+  <form method="get" class="archive-form">
+   <input type="hidden" name="load" value="1">
+   <label>History <select name="kind"><option value="posts" {% if kind == "posts" %}selected{% endif %}>Posts</option><option value="comments" {% if kind == "comments" %}selected{% endif %}>Comments</option></select></label>
+   <label>Sources <select name="source"><option value="both" {% if source == "both" %}selected{% endif %}>Both archives</option><option value="arctic" {% if source == "arctic" %}selected{% endif %}>Arctic Shift</option><option value="pullpush" {% if source == "pullpush" %}selected{% endif %}>PullPush</option></select></label>
+   <label><input type="checkbox" name="unrated" value="1" {% if unrated %}checked{% endif %}> Include text with unknown content rating</label>
+   <button type="submit">Search archives</button>
+  </form>
+ </section>
+ {% if loaded %}
+ <section class="archive-status" aria-label="Archive source status">
+  {% for status in statuses %}<p class="{% if !status.ok %}archive-warning{% endif %}"><strong>{{ status.name }}</strong> · {{ status.message }}</p>{% endfor %}
+  {% if filtered > 0 %}<p>{{ filtered }} records hidden by your filters or NSFW settings.</p>{% endif %}
+ </section>
+ {% if records.is_empty() %}<p class="panel">No archive results are available for this lookup. Coverage, source exclusions, filters and provider availability can affect the results.</p>{% endif %}
+ <section aria-label="Archived records">
+ {% for record in records %}
+ <article class="panel archive-record">
+  <div class="archive-sources">{% for source in record.sources %}<span>{{ source }}</span>{% endfor %}<span>Archived snapshot</span>{% if !record.marker.is_empty() %}<span>{{ record.marker }}</span>{% endif %}</div>
+  <h2>{{ record.title }}</h2><p>r/{{ record.subreddit }} · Posted {{ record.created_label }}</p><p>{{ record.captured_label }}</p>
+  {% if record.conflict %}<p class="archive-warning">Sources have different snapshots. Choose a single source to compare them.</p>{% endif %}
+  {% if record.hidden %}<p>Text hidden because its content rating is unavailable. Use the checkbox above to include unrated text, unless this instance is SFW-only.</p>{% else if !record.body.is_empty() %}<div class="archive-text">{{ record.body }}</div>{% endif %}
+  {% if !record.link.is_empty() %}<p><a href="{{ record.link }}">Open current thread</a></p>{% endif %}
+ </article>
+ {% endfor %}
+ </section>
+ {% if !next.is_empty() %}<p><a class="archive-next" href="{{ next }}">Next archived page →</a></p>{% endif %}
+ {% endif %}
+ <footer><p>Archive copies are separate from live Reddit history. For source corrections or removal, contact <a href="https://github.com/ArthurHeitmann/arctic_shift#data-removal" rel="noreferrer">Arctic Shift</a> or <a href="https://removals.pullpush.io/" rel="noreferrer">PullPush</a>.</p></footer>
+</main>
+{% endblock %}

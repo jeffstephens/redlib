@@ -132,6 +132,7 @@ body %}
             <p>Profile details unavailable. Reddit did not provide profile metadata.</p>
             {% endif %}
             <div id="user_actions">
+                {% if crate::archive::enabled() %}<div><a class="archive-link" href="/user/{{ user.name }}/archive">Archived history</a></div>{% endif %}
                 {% let name = ["u_", user.name.as_str()].join("") %}
                 <div id="user_subscription">
                     {% if prefs.subscriptions.contains(name) %}

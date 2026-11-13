@@ -71,6 +71,10 @@
     "REDLIB_PUSHSHIFT_FRONTEND": {
       "required": false
     },
+    "REDLIB_ENABLE_ARCHIVES": {
+      "required": false,
+      "description": "Set to on to enable explicitly activated independent archive history"
+    },
     "REDLIB_ENABLE_RSS": {
       "required": false
     },
