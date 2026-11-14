@@ -18,6 +18,11 @@ use std::{
 
 const FETCH_LIMIT: usize = 50;
 const PAGE_LIMIT: usize = 25;
+/// Reddit allows 40,000 characters per post body (comments allow fewer); at up to four UTF-8
+/// bytes each, this keeps every valid body intact.
+const BODY_LIMIT: usize = 40_000 * 4;
+/// One provider page holds up to FETCH_LIMIT bodies of BODY_LIMIT bytes plus metadata.
+const RESPONSE_LIMIT: usize = 10 * 1024 * 1024;
 static REQUESTS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
 static BACKOFF: LazyLock<Mutex<HashMap<Source, Instant>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 static CLIENT: LazyLock<wreq::Client> = LazyLock::new(|| {
@@ -197,7 +202,7 @@ fn normalize(row: &Value, source: Source, kind: &str, user: &str) -> Option<Reco
 	Some(Record {
 		id,
 		title: bounded(row["title"].as_str().unwrap_or("Archived comment"), 1024),
-		body: bounded(text, 8192),
+		body: bounded(text, BODY_LIMIT),
 		html: String::new(),
 		subreddit,
 		created,
@@ -358,7 +363,7 @@ async fn fetch_inner(user: &str, kind: &str, source: Source, cursor: &Cursor) ->
 		log::warn!("Archive {} {kind} returned HTTP {status}: {detail}", source.label());
 		return Err(status_message(status, &detail));
 	}
-	let bytes = read_capped(response, 2 * 1024 * 1024).await?;
+	let bytes = read_capped(response, RESPONSE_LIMIT).await?;
 	let value: Value = serde_json::from_slice(&bytes).map_err(|_| {
 		log::warn!("Archive {} {kind} returned invalid JSON: {}", source.label(), error_detail(&bytes));
 		"Provider returned an invalid response"
