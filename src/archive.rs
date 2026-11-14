@@ -71,6 +71,8 @@ struct Record {
 	id: String,
 	title: String,
 	body: String,
+	/// Sanitized HTML rendered from `body`; filled in only for records that will be shown.
+	html: String,
 	subreddit: String,
 	created: i64,
 	captured: Option<i64>,
@@ -131,6 +133,35 @@ fn bounded(value: &str, max: usize) -> String {
 	}
 	value[..end].to_owned()
 }
+/// Renders archived Reddit markdown as sanitized HTML. Raw HTML stays literal text (as on Reddit),
+/// images become plain links so archive pages never embed remote media, and link targets go
+/// through Redlib's URL rewriting.
+fn render_markdown(text: &str) -> String {
+	use pulldown_cmark::{html, Event, Options, Parser, Tag, TagEnd};
+	use std::borrow::Cow;
+	let events = Parser::new_ext(text, Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TABLES).map(|event| match event {
+		Event::Html(raw) | Event::InlineHtml(raw) => Event::Text(raw),
+		Event::Start(Tag::HtmlBlock) => Event::Start(Tag::Paragraph),
+		Event::End(TagEnd::HtmlBlock) => Event::End(TagEnd::Paragraph),
+		Event::Start(Tag::Image { link_type, dest_url, title, id }) => Event::Start(Tag::Link { link_type, dest_url, title, id }),
+		Event::End(TagEnd::Image) => Event::End(TagEnd::Link),
+		event => event,
+	});
+	let mut rendered = String::new();
+	html::push_html(&mut rendered, events);
+	ammonia::Builder::default()
+		.rm_tags(["img"])
+		.link_rel(Some("nofollow noopener noreferrer"))
+		.attribute_filter(|tag, attribute, value| {
+			if (tag, attribute) == ("a", "href") {
+				Some(Cow::Owned(utils::format_url(value)))
+			} else {
+				Some(Cow::Borrowed(value))
+			}
+		})
+		.clean(&rendered)
+		.to_string()
+}
 fn normalize(row: &Value, source: Source, kind: &str, user: &str) -> Option<Record> {
 	if !row["author"].as_str()?.eq_ignore_ascii_case(user) {
 		return None;
@@ -167,6 +198,7 @@ fn normalize(row: &Value, source: Source, kind: &str, user: &str) -> Option<Reco
 		id,
 		title: bounded(row["title"].as_str().unwrap_or("Archived comment"), 1024),
 		body: bounded(text, 8192),
+		html: String::new(),
 		subreddit,
 		created,
 		captured,
@@ -500,6 +532,9 @@ pub async fn page(req: Request<Body>) -> Result<Response<Body>, String> {
 	let mut records = merge(records);
 	let allow_nsfw = utils::setting(&req, "show_nsfw") == "on";
 	let filtered = filter_records(&mut records, &filters, &kind, allow_nsfw, unrated, utils::sfw_only());
+	for record in records.iter_mut().filter(|r| !r.hidden) {
+		record.html = render_markdown(&record.body);
+	}
 	let reddit_url = format!("/user/{username}");
 	let view = ArchiveTemplate {
 		username,
@@ -639,6 +674,7 @@ mod tests {
 		let mut item = record("abc", 100);
 		item.title = "<script>alert(1)</script>".into();
 		item.body = "<img src=\"https://evil.invalid/track\">".into();
+		item.html = render_markdown(&item.body);
 		let view = ArchiveTemplate {
 			username: "example".into(),
 			kind: "posts".into(),
@@ -671,6 +707,17 @@ mod tests {
 		assert_eq!(error_detail(b"error code: 526\n"), "error code: 526");
 		assert!(status_message(526, "").contains("outage"));
 		assert_eq!(status_message(500, ""), "Unavailable (HTTP 500)");
+	}
+	#[test]
+	fn archived_markdown_renders_without_media_or_raw_html() {
+		let html = render_markdown("# Heading\n\n**bold** ~~gone~~ [docs](https://example.com/a) [sub](https://www.reddit.com/r/rust/)\n\n![pic](https://i.redd.it/abc.png) [bad](javascript:alert(1))\n\n<script>alert(1)</script> &amp; <b>raw</b>");
+		assert!(html.contains("<h1>Heading</h1>"));
+		assert!(html.contains("<strong>bold</strong>") && html.contains("<del>gone</del>"));
+		assert!(html.contains(r#"href="https://example.com/a" rel="nofollow noopener noreferrer""#));
+		assert!(html.contains(r#"href="/r/rust/""#));
+		assert!(!html.contains("<img") && html.contains(">pic</a>"));
+		assert!(!html.contains("javascript:"));
+		assert!(!html.contains("<script>") && html.contains("&lt;script&gt;") && html.contains("&lt;b&gt;raw"));
 	}
 	#[test]
 	fn text_bounds_preserve_unicode() {

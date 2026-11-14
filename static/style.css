@@ -2161,12 +2161,14 @@ th {
 .archive-status-error { color: var(--accent); }
 .archive-status-error::before { background: var(--accent); }
 .archive-view center { margin: 15px 0; opacity: 0.8; }
-.archive-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.archive-text { overflow-wrap: anywhere; }
+.archive-text > * + * { margin-top: 10px; }
 .archive-body { opacity: 0.9; }
 .archive-body > * + * { margin-top: 10px; }
 .archive-hidden { font-style: italic; opacity: 0.7; }
 .archive-icon { display: block; margin: 0 auto; }
 .archive-post .post_score { color: var(--accent); opacity: 0.8; }
+.archive-post .post_score::before { content: none; }
 .archive-clamp { max-height: 250px; overflow: hidden; -webkit-mask-image: linear-gradient(180deg, #000 60%, transparent); mask-image: linear-gradient(180deg, #000 60%, transparent); }
 .archive-body:has(.archive-more[open]) .archive-clamp { max-height: none; -webkit-mask-image: none; mask-image: none; }
 .archive-more > summary { list-style: none; cursor: pointer; font-size: 14px; font-weight: bold; color: var(--accent); }

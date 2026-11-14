@@ -37,7 +37,7 @@
     <div class="post_score" title="Archived snapshot"><svg class="archive-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="5" rx="1"/><path d="M5 9v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9M10 13h4"/></svg></div>
     <div class="post_body archive-body">
      {% if record.conflict %}<p class="archive-conflict">Sources have different snapshots. Choose a single source to compare them.</p>{% endif %}
-     {% if record.hidden %}<p class="archive-hidden">Text hidden because its content rating is unavailable. Tick “Include text with unknown content rating” to show it, unless this instance is SFW-only.</p>{% else if record.body.len() > 900 %}<div class="archive-text archive-clamp">{{ record.body }}</div><details class="archive-more"><summary><span class="archive-more-open">Show full text</span><span class="archive-more-close">Show less</span></summary></details>{% else if !record.body.is_empty() %}<div class="archive-text">{{ record.body }}</div>{% endif %}
+     {% if record.hidden %}<p class="archive-hidden">Text hidden because its content rating is unavailable. Tick “Include text with unknown content rating” to show it, unless this instance is SFW-only.</p>{% else if record.body.len() > 900 %}<div class="archive-text md archive-clamp">{{ record.html|safe }}</div><details class="archive-more"><summary><span class="archive-more-open">Show full text</span><span class="archive-more-close">Show less</span></summary></details>{% else if !record.body.is_empty() %}<div class="archive-text md">{{ record.html|safe }}</div>{% endif %}
     </div>
     <div class="post_footer">
      <span class="archive-provenance">{% for source in record.sources %}{{ source }}{% if !loop.last %} + {% endif %}{% endfor %} · {{ record.captured_label }}</span>
@@ -45,7 +45,7 @@
     </div>
    </div>
    {% else %}
-   <div class="comment user-comment archive-comment" id="{{ record.id }}">
+   <div class="comment user-comment archive-comment">
     <div class="comment_left">
      <p class="comment_score" title="Archived snapshot"><svg class="archive-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="5" rx="1"/><path d="M5 9v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9M10 13h4"/></svg></p>
      <div class="line"></div>
@@ -62,7 +62,7 @@
       </div>
      </summary>
      {% if record.conflict %}<p class="archive-conflict">Sources have different snapshots. Choose a single source to compare them.</p>{% endif %}
-     {% if record.hidden %}<p class="comment_body archive-hidden">Text hidden because its content rating is unavailable. Tick “Include text with unknown content rating” to show it, unless this instance is SFW-only.</p>{% else %}<div class="comment_body archive-text">{{ record.body }}</div>{% endif %}
+     {% if record.hidden %}<p class="comment_body archive-hidden">Text hidden because its content rating is unavailable. Tick “Include text with unknown content rating” to show it, unless this instance is SFW-only.</p>{% else %}<div class="comment_body archive-text md">{{ record.html|safe }}</div>{% endif %}
      <p class="archive-provenance">{% for source in record.sources %}{{ source }}{% if !loop.last %} + {% endif %}{% endfor %} · {{ record.captured_label }}</p>
     </details>
    </div>
