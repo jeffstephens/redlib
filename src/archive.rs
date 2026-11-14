@@ -157,8 +157,7 @@ fn mark_spoilers(text: &str) -> String {
 			fenced = !fenced;
 		}
 		let mut rest = line.as_str();
-		loop {
-			let Some(start) = rest.find(">!").filter(|_| !fenced) else { break };
+		while let Some(start) = rest.find(">!").filter(|_| !fenced) {
 			let Some(len) = rest[start + 2..].find("!<") else { break };
 			out.push_str(&rest[..start]);
 			out.push(SPOILER_OPEN);
@@ -180,8 +179,7 @@ fn superscript(text: &str, depth: usize, out: &mut Vec<pulldown_cmark::Event<'_>
 		(&s[..end], &s[end..])
 	}
 	let mut rest = text;
-	loop {
-		let Some(caret) = rest.find('^').filter(|_| depth < SUPERSCRIPT_DEPTH) else { break };
+	while let Some(caret) = rest.find('^').filter(|_| depth < SUPERSCRIPT_DEPTH) {
 		let after = &rest[caret + 1..];
 		let (inner, remainder) = match after.strip_prefix('(') {
 			Some(group) => {
