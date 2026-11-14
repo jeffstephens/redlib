@@ -710,6 +710,30 @@ where
 #[include = "*.css"]
 pub struct ThemeAssets;
 
+/// The stylesheet served at `/style.css`: base styles followed by every embedded theme.
+pub static STYLESHEET: LazyLock<String> = LazyLock::new(|| {
+	let mut css = include_str!("../static/style.css").to_string();
+	for file in ThemeAssets::iter() {
+		if let Some(theme) = ThemeAssets::get(file.as_ref()) {
+			css.push('\n');
+			css.push_str(&String::from_utf8_lossy(&theme.data));
+		}
+	}
+	css
+});
+
+/// Content hash of [`STYLESHEET`]. The stylesheet is cached for two weeks, and fork builds
+/// keep the same crate version, so its URL must change whenever its contents do.
+pub fn stylesheet_version() -> &'static str {
+	static VERSION: LazyLock<String> = LazyLock::new(|| {
+		use std::hash::{Hash, Hasher};
+		let mut hasher = std::collections::hash_map::DefaultHasher::new();
+		STYLESHEET.hash(&mut hasher);
+		format!("{:016x}", hasher.finish())
+	});
+	&VERSION
+}
+
 impl Preferences {
 	/// Build preferences from cookies
 	pub fn new(req: &Request<Body>) -> Self {
