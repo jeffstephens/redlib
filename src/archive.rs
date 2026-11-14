@@ -138,24 +138,117 @@ fn bounded(value: &str, max: usize) -> String {
 	}
 	value[..end].to_owned()
 }
+const SPOILER_OPEN: char = '\u{E000}';
+const SPOILER_CLOSE: char = '\u{E001}';
+const SUPERSCRIPT_DEPTH: usize = 8;
+/// Longest `^(...)` group searched for its closing parenthesis, bounding work on unbalanced input.
+const SUPERSCRIPT_GROUP: usize = 1000;
+
+/// Marks Reddit spoilers (`>!text!<`, within one line) with private-use placeholders before
+/// markdown parsing, so a spoiler at the start of a line isn't read as a blockquote. Fenced code
+/// is left alone.
+fn mark_spoilers(text: &str) -> String {
+	let mut out = String::with_capacity(text.len());
+	let mut fenced = false;
+	for line in text.split_inclusive('\n') {
+		let line = line.replace([SPOILER_OPEN, SPOILER_CLOSE], "");
+		let trimmed = line.trim_start();
+		if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
+			fenced = !fenced;
+		}
+		let mut rest = line.as_str();
+		loop {
+			let Some(start) = rest.find(">!").filter(|_| !fenced) else { break };
+			let Some(len) = rest[start + 2..].find("!<") else { break };
+			out.push_str(&rest[..start]);
+			out.push(SPOILER_OPEN);
+			out.push_str(&rest[start + 2..start + 2 + len]);
+			out.push(SPOILER_CLOSE);
+			rest = &rest[start + 4 + len..];
+		}
+		out.push_str(rest);
+	}
+	out
+}
+
+/// Splits text into events, rendering Reddit superscript (`^word`, `^(several words)`, nested
+/// `^^word`) as `<sup>`. Nesting deeper than [`SUPERSCRIPT_DEPTH`] stays literal.
+fn superscript(text: &str, depth: usize, out: &mut Vec<pulldown_cmark::Event<'_>>) {
+	use pulldown_cmark::Event;
+	fn word(s: &str) -> (&str, &str) {
+		let end = s.find(char::is_whitespace).unwrap_or(s.len());
+		(&s[..end], &s[end..])
+	}
+	let mut rest = text;
+	loop {
+		let Some(caret) = rest.find('^').filter(|_| depth < SUPERSCRIPT_DEPTH) else { break };
+		let after = &rest[caret + 1..];
+		let (inner, remainder) = match after.strip_prefix('(') {
+			Some(group) => {
+				let mut open = 1usize;
+				let close = group.char_indices().take(SUPERSCRIPT_GROUP).find_map(|(i, c)| {
+					match c {
+						'(' => open += 1,
+						')' => open -= 1,
+						_ => {}
+					}
+					(open == 0).then_some(i)
+				});
+				close.map_or_else(|| word(after), |i| (&group[..i], &group[i + 1..]))
+			}
+			None => word(after),
+		};
+		if inner.is_empty() {
+			out.push(Event::Text(rest[..=caret].to_owned().into()));
+			rest = after;
+			continue;
+		}
+		if caret > 0 {
+			out.push(Event::Text(rest[..caret].to_owned().into()));
+		}
+		out.push(Event::InlineHtml("<sup>".into()));
+		superscript(inner, depth + 1, out);
+		out.push(Event::InlineHtml("</sup>".into()));
+		rest = remainder;
+	}
+	if !rest.is_empty() {
+		out.push(Event::Text(rest.to_owned().into()));
+	}
+}
+
 /// Renders archived Reddit markdown as sanitized HTML. Raw HTML stays literal text (as on Reddit),
 /// images become plain links so archive pages never embed remote media, and link targets go
-/// through Redlib's URL rewriting.
+/// through Redlib's URL rewriting. Reddit's spoiler and superscript syntax are supported.
 fn render_markdown(text: &str) -> String {
-	use pulldown_cmark::{html, Event, Options, Parser, Tag, TagEnd};
+	use pulldown_cmark::{html, Event, Options, Parser, Tag, TagEnd, TextMergeStream};
 	use std::borrow::Cow;
-	let events = Parser::new_ext(text, Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TABLES).map(|event| match event {
-		Event::Html(raw) | Event::InlineHtml(raw) => Event::Text(raw),
-		Event::Start(Tag::HtmlBlock) => Event::Start(Tag::Paragraph),
-		Event::End(TagEnd::HtmlBlock) => Event::End(TagEnd::Paragraph),
-		Event::Start(Tag::Image { link_type, dest_url, title, id }) => Event::Start(Tag::Link { link_type, dest_url, title, id }),
-		Event::End(TagEnd::Image) => Event::End(TagEnd::Link),
-		event => event,
-	});
+	let source = mark_spoilers(text);
+	let mut events = Vec::new();
+	let mut in_code = false;
+	for event in TextMergeStream::new(Parser::new_ext(&source, Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TABLES)) {
+		match event {
+			Event::Text(text) if !in_code => superscript(&text, 0, &mut events),
+			Event::Html(raw) | Event::InlineHtml(raw) => events.push(Event::Text(raw)),
+			Event::Start(Tag::HtmlBlock) => events.push(Event::Start(Tag::Paragraph)),
+			Event::End(TagEnd::HtmlBlock) => events.push(Event::End(TagEnd::Paragraph)),
+			Event::Start(Tag::Image { link_type, dest_url, title, id }) => events.push(Event::Start(Tag::Link { link_type, dest_url, title, id })),
+			Event::End(TagEnd::Image) => events.push(Event::End(TagEnd::Link)),
+			event => {
+				match event {
+					Event::Start(Tag::CodeBlock(_)) => in_code = true,
+					Event::End(TagEnd::CodeBlock) => in_code = false,
+					_ => {}
+				}
+				events.push(event);
+			}
+		}
+	}
 	let mut rendered = String::new();
-	html::push_html(&mut rendered, events);
+	html::push_html(&mut rendered, events.into_iter());
+	let rendered = rendered.replace(SPOILER_OPEN, "<archive-spoiler>").replace(SPOILER_CLOSE, "</archive-spoiler>");
 	ammonia::Builder::default()
 		.rm_tags(["img"])
+		.add_tags(["archive-spoiler"])
 		.link_rel(Some("nofollow noopener noreferrer"))
 		.attribute_filter(|tag, attribute, value| {
 			if (tag, attribute) == ("a", "href") {
@@ -166,6 +259,8 @@ fn render_markdown(text: &str) -> String {
 		})
 		.clean(&rendered)
 		.to_string()
+		.replace("<archive-spoiler>", r#"<span class="md-spoiler-text" tabindex="0">"#)
+		.replace("</archive-spoiler>", "</span>")
 }
 fn normalize(row: &Value, source: Source, kind: &str, user: &str) -> Option<Record> {
 	if !row["author"].as_str()?.eq_ignore_ascii_case(user) {
@@ -723,6 +818,22 @@ mod tests {
 		assert!(!html.contains("<img") && html.contains(">pic</a>"));
 		assert!(!html.contains("javascript:"));
 		assert!(!html.contains("<script>") && html.contains("&lt;script&gt;") && html.contains("&lt;b&gt;raw"));
+	}
+	#[test]
+	fn archived_spoilers_and_superscript_render() {
+		let spoiler = r#"<span class="md-spoiler-text" tabindex="0">"#;
+		let html = render_markdown(">!Snape kills **Dumbledore**!< and >!more!<\n\nnot a >!spoiler");
+		assert!(!html.contains("<blockquote>"));
+		assert!(html.contains(&format!("{spoiler}Snape kills <strong>Dumbledore</strong></span>")));
+		assert!(html.contains(&format!("{spoiler}more</span>")));
+		assert!(html.contains("not a &gt;!spoiler"));
+		let html = render_markdown("2^10 and ^(two words) and ^^nested and a ^ caret\n\n```\nx^2 >!code!<\n```");
+		assert!(html.contains("2<sup>10</sup> and <sup>two words</sup> and <sup><sup>nested</sup></sup> and a ^ caret"));
+		assert!(html.contains("x^2 &gt;!code!&lt;"));
+		let deep = render_markdown(&"^".repeat(100_000));
+		assert!(deep.matches("<sup>").count() <= SUPERSCRIPT_DEPTH);
+		assert!(!render_markdown("\u{E000}<script>\u{E001}").contains("<script>"));
+		assert!(render_markdown(&"^( ".repeat(50_000)).contains("<sup>"));
 	}
 	#[test]
 	fn text_bounds_preserve_unicode() {

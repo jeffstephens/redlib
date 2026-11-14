@@ -2162,6 +2162,9 @@ th {
 .archive-status-error::before { background: var(--accent); }
 .archive-view center { margin: 15px 0; opacity: 0.8; }
 .archive-text { overflow-wrap: anywhere; }
+.archive-text .md-spoiler-text { border-radius: 3px; cursor: pointer; }
+.archive-text .md-spoiler-text:focus { background: var(--foreground); color: var(--text); outline: none; }
+.archive-text .md-spoiler-text:focus a { background: var(--foreground); color: var(--accent); }
 .archive-text > * + * { margin-top: 10px; }
 .archive-body { opacity: 0.9; }
 .archive-body > * + * { margin-top: 10px; }
