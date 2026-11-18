@@ -479,7 +479,7 @@ pub async fn json(path: String, quarantine: bool) -> Result<Value, String> {
 						}
 						Err(e) => {
 							if status == hyper::StatusCode::FORBIDDEN {
-								warn!("Reddit refused the JSON request (403); thread requests may use the web fallback");
+								warn!("Reddit refused the JSON request (403) for {}", path.split('?').next().unwrap_or_default());
 							} else {
 								error!("Got an invalid response from reddit {e}. Status code: {status}");
 							}

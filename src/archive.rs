@@ -140,6 +140,9 @@ fn bounded(value: &str, max: usize) -> String {
 }
 const SPOILER_OPEN: char = '\u{E000}';
 const SPOILER_CLOSE: char = '\u{E001}';
+// A label toggles its checkbox on a single tap or click, with no script needed.
+const SPOILER_HTML_OPEN: &str =
+	r#"<label class="archive-spoiler"><input type="checkbox" class="archive-spoiler-toggle" aria-label="Reveal spoiler"><span class="md-spoiler-text">"#;
 const SUPERSCRIPT_DEPTH: usize = 8;
 /// Longest `^(...)` group searched for its closing parenthesis, bounding work on unbalanced input.
 const SUPERSCRIPT_GROUP: usize = 1000;
@@ -257,8 +260,8 @@ fn render_markdown(text: &str) -> String {
 		})
 		.clean(&rendered)
 		.to_string()
-		.replace("<archive-spoiler>", r#"<span class="md-spoiler-text" tabindex="0">"#)
-		.replace("</archive-spoiler>", "</span>")
+		.replace("<archive-spoiler>", SPOILER_HTML_OPEN)
+		.replace("</archive-spoiler>", "</span></label>")
 }
 fn normalize(row: &Value, source: Source, kind: &str, user: &str) -> Option<Record> {
 	if !row["author"].as_str()?.eq_ignore_ascii_case(user) {
@@ -819,11 +822,11 @@ mod tests {
 	}
 	#[test]
 	fn archived_spoilers_and_superscript_render() {
-		let spoiler = r#"<span class="md-spoiler-text" tabindex="0">"#;
+		let spoiler = SPOILER_HTML_OPEN;
 		let html = render_markdown(">!Snape kills **Dumbledore**!< and >!more!<\n\nnot a >!spoiler");
 		assert!(!html.contains("<blockquote>"));
-		assert!(html.contains(&format!("{spoiler}Snape kills <strong>Dumbledore</strong></span>")));
-		assert!(html.contains(&format!("{spoiler}more</span>")));
+		assert!(html.contains(&format!("{spoiler}Snape kills <strong>Dumbledore</strong></span></label>")));
+		assert!(html.contains(&format!("{spoiler}more</span></label>")));
 		assert!(html.contains("not a &gt;!spoiler"));
 		let html = render_markdown("2^10 and ^(two words) and ^^nested and a ^ caret\n\n```\nx^2 >!code!<\n```");
 		assert!(html.contains("2<sup>10</sup> and <sup>two words</sup> and <sup><sup>nested</sup></sup> and a ^ caret"));
