@@ -74,6 +74,13 @@
 			<center>No posts were found.</center>
 		{% endif %}
 
+		{% if blocked %}
+			<div class="search-blocked">
+				<strong>Search is unavailable right now</strong>
+				<p>Reddit is blocking search requests from this instance. Browsing subreddits, posts, and profiles still works.</p>
+			</div>
+		{% endif %}
+
 		{% if all_posts_filtered %}
 			<span class="listing_warn">(All content on this page has been filtered)</span>
 		{% else if is_filtered %}

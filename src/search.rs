@@ -49,6 +49,8 @@ struct SearchTemplate {
 	/// Whether all posts were hidden because they are NSFW (and user has disabled show NSFW)
 	all_posts_hidden_nsfw: bool,
 	no_posts: bool,
+	/// Whether Reddit refused the search, so no results could be fetched.
+	blocked: bool,
 }
 
 /// Regex matched against search queries to determine if they are reddit urls.
@@ -127,6 +129,7 @@ pub async fn find(req: Request<Body>) -> Result<Response<Body>, String> {
 			all_posts_filtered: false,
 			all_posts_hidden_nsfw: false,
 			no_posts: false,
+			blocked: false,
 		}))
 	} else {
 		match Post::fetch(&path, quarantined).await {
@@ -153,6 +156,31 @@ pub async fn find(req: Request<Body>) -> Result<Response<Body>, String> {
 					all_posts_filtered,
 					all_posts_hidden_nsfw,
 					no_posts,
+					blocked: false,
+				}))
+			}
+			Err(msg) if msg.starts_with("Reddit blocked this") => {
+				log::warn!("Search unavailable: {}", msg.split('|').next().unwrap_or_default().trim());
+				Ok(template(&SearchTemplate {
+					posts: Vec::new(),
+					subreddits,
+					sub,
+					params: SearchParams {
+						q: query.replace('"', "&quot;"),
+						sort,
+						t: param(&path, "t").unwrap_or_default(),
+						before: String::new(),
+						after: String::new(),
+						restrict_sr: param(&path, "restrict_sr").unwrap_or_default(),
+						typed,
+					},
+					prefs: Preferences::new(&req),
+					url,
+					is_filtered: false,
+					all_posts_filtered: false,
+					all_posts_hidden_nsfw: false,
+					no_posts: false,
+					blocked: true,
 				}))
 			}
 			Err(msg) => {

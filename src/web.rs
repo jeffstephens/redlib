@@ -160,7 +160,7 @@ async fn fetch_as(mut url: Url, mut cursor: Option<String>, navigate: bool) -> R
 			return Err("Reddit is rate limiting comment requests; try again later".into());
 		}
 		if !status.is_success() {
-			return Err(format!("Reddit returned {status} for web comments"));
+			return Err(format!("Reddit returned {status} for a web request"));
 		}
 		let encoding = response
 			.headers()

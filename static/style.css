@@ -2192,3 +2192,6 @@ th {
 .archive-removal a { text-decoration: underline; }
 #user_archive { margin-top: 20px; }
 #user_actions > #user_archive:nth-child(odd) { grid-column: 1 / -1; }
+
+.search-blocked { margin: 20px 0; padding: 15px 20px; border-radius: 5px; background: var(--post); border-left: 4px solid var(--accent); }
+.search-blocked p { margin-top: 6px; opacity: 0.85; }
