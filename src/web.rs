@@ -27,14 +27,40 @@ fn fragment_url(path: &str) -> Result<Url, String> {
 }
 
 fn allowed_url(url: &Url) -> bool {
+	let path = url.path();
+	let fragment = ["/svc/shreddit/comments/", "/svc/shreddit/more-comments/", "/svc/shreddit/community-more-posts/"]
+		.iter()
+		.any(|prefix| path.starts_with(prefix));
 	url.scheme() == "https"
 		&& url.host_str() == Some("www.reddit.com")
 		&& url.port_or_known_default() == Some(443)
 		&& url.username().is_empty()
 		&& url.password().is_none()
-		&& ["/svc/shreddit/comments/", "/svc/shreddit/more-comments/", "/svc/shreddit/community-more-posts/"]
-			.iter()
-			.any(|prefix| url.path().starts_with(prefix))
+		&& (fragment || search_path(path))
+}
+
+/// The site-wide or single-subreddit web search page.
+fn search_path(path: &str) -> bool {
+	let Some(sub) = path.strip_prefix("/r/").and_then(|rest| rest.strip_suffix("/search/")) else {
+		return path == "/search/";
+	};
+	!sub.is_empty() && sub.len() <= 21 && sub.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+}
+
+/// Fetch a logged-out web search page as a browser navigation.
+pub async fn search_page(path: String) -> Result<String, String> {
+	let url = fragment_url(&path)?;
+	if !search_path(url.path()) {
+		return Err("Refusing non-search URL".into());
+	}
+	let _permit = REQUESTS.acquire().await.map_err(|_| "Search transport stopped")?;
+	let html = timeout(Duration::from_secs(20), fetch_as(url, None, true))
+		.await
+		.map_err(|_| "Reddit search request timed out")??;
+	if html.contains("<title>Reddit - Prove your humanity</title>") || html.contains("namedItem(\"solution\")") {
+		return Err("Reddit answered with a bot check".into());
+	}
+	Ok(html)
 }
 
 pub async fn shreddit_fragment(path: String, cursor: Option<String>) -> Result<String, String> {
@@ -57,7 +83,11 @@ pub async fn shreddit_fragment(path: String, cursor: Option<String>) -> Result<S
 	Err("Reddit challenged the logged-out comments session; try again later".into())
 }
 
-async fn fetch(mut url: Url, mut cursor: Option<String>) -> Result<String, String> {
+async fn fetch(url: Url, cursor: Option<String>) -> Result<String, String> {
+	fetch_as(url, cursor, false).await
+}
+
+async fn fetch_as(mut url: Url, mut cursor: Option<String>, navigate: bool) -> Result<String, String> {
 	for _ in 0..4 {
 		let csrf = format!("{:032x}", fastrand::u128(..));
 		let stored = COOKIES
@@ -75,16 +105,21 @@ async fn fetch(mut url: Url, mut cursor: Option<String>) -> Result<String, Strin
 		} else {
 			String::new()
 		};
+		let (accept, dest, mode) = if navigate {
+			("text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8", "document", "navigate")
+		} else {
+			("text/vnd.reddit.partial+html, text/html;q=0.9", "empty", "cors")
+		};
 		let mut request = CLIENT
 			.request(if cursor.is_some() { wreq::Method::POST } else { wreq::Method::GET }, url.as_str())
 			.header(header::USER_AGENT, USER_AGENT)
-			.header(header::ACCEPT, "text/vnd.reddit.partial+html, text/html;q=0.9")
+			.header(header::ACCEPT, accept)
 			.header(header::ACCEPT_LANGUAGE, "en-US,en;q=0.9")
 			.header(header::ACCEPT_ENCODING, "gzip")
 			.header(header::COOKIE, cookies)
 			.header(header::REFERER, "https://www.reddit.com/")
-			.header("Sec-Fetch-Dest", "empty")
-			.header("Sec-Fetch-Mode", "cors")
+			.header("Sec-Fetch-Dest", dest)
+			.header("Sec-Fetch-Mode", mode)
 			.header("Sec-Fetch-Site", "same-origin");
 		if cursor.is_some() {
 			request = request.header(header::ORIGIN, BASE).header(header::CONTENT_TYPE, "application/x-www-form-urlencoded");
@@ -169,5 +204,10 @@ mod tests {
 		assert!(fragment_url("/svc/shreddit/community-more-posts/../../api").is_err());
 		assert!(!allowed_url(&Url::parse("https://evil.example/svc/shreddit/comments/x").unwrap()));
 		assert!(!allowed_url(&Url::parse("http://www.reddit.com/svc/shreddit/comments/x").unwrap()));
+		assert!(fragment_url("/search/?q=rust&type=posts").is_ok());
+		assert!(fragment_url("/r/rust/search/?q=x&restrict_sr=1").is_ok());
+		for path in ["/r/rust/search/../../api/v1/me", "/r/a/b/search/", "/r//search/", "/user/x/search/"] {
+			assert!(fragment_url(path).is_err(), "{path}");
+		}
 	}
 }
