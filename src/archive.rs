@@ -141,7 +141,8 @@ fn bounded(value: &str, max: usize) -> String {
 const SPOILER_OPEN: char = '\u{E000}';
 const SPOILER_CLOSE: char = '\u{E001}';
 // A label toggles its checkbox on a single tap or click, with no script needed.
-const SPOILER_HTML_OPEN: &str = r#"<label class="archive-spoiler"><input type="checkbox" class="archive-spoiler-toggle" aria-label="Reveal spoiler"><span class="md-spoiler-text">"#;
+const SPOILER_HTML_OPEN: &str =
+	r#"<label class="archive-spoiler"><input type="checkbox" class="archive-spoiler-toggle" aria-label="Reveal spoiler"><span class="md-spoiler-text">"#;
 const SUPERSCRIPT_DEPTH: usize = 8;
 /// Longest `^(...)` group searched for its closing parenthesis, bounding work on unbalanced input.
 const SUPERSCRIPT_GROUP: usize = 1000;
