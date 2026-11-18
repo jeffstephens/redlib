@@ -114,7 +114,7 @@ fn graphql_page(response: &Value) -> Result<(Vec<String>, Option<String>), Strin
 
 // Limit metadata concurrency across simultaneous feed pages as well as within one page.
 static METADATA: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
-async fn post_metadata(ids: &[String], quarantine: bool) -> Result<Value, String> {
+pub(crate) async fn post_metadata(ids: &[String], quarantine: bool) -> Result<Value, String> {
 	let mut posts = Vec::new();
 	for batch in ids.chunks(2) {
 		let mut tasks = tokio::task::JoinSet::new();
@@ -169,7 +169,7 @@ fn parse_fragment(html: &str) -> Result<(Vec<String>, Option<String>), String> {
 	Ok((ids, after))
 }
 
-fn ordered_listing(ids: &[String], after: Option<String>, metadata: Value) -> Result<Value, String> {
+pub(crate) fn ordered_listing(ids: &[String], after: Option<String>, metadata: Value) -> Result<Value, String> {
 	let posts = metadata["data"]["children"].as_array().ok_or("Reddit returned invalid feed metadata")?;
 	let by_id: HashMap<_, _> = posts.iter().filter_map(|post| post["data"]["name"].as_str().map(|id| (id, post))).collect();
 	let children: Vec<_> = ids.iter().filter_map(|id| by_id.get(id.as_str()).copied()).collect();

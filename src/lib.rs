@@ -16,6 +16,7 @@ pub mod utils;
 
 mod feed;
 mod web;
+mod web_search;
 
 mod browser;
 mod gql;

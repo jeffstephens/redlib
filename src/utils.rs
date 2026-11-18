@@ -375,6 +375,10 @@ impl Post {
 				web_feed = true;
 				crate::feed::listing(path.to_owned(), quarantine).await?
 			}
+			Err(msg) if msg.starts_with("Reddit blocked this request (403 Forbidden)") && crate::web_search::supported(path) => {
+				web_feed = true;
+				crate::web_search::listing(path, quarantine).await?
+			}
 			// If the Reddit API returns an error, exit this function
 			Err(msg) => return Err(msg),
 		};
