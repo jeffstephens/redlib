@@ -70,8 +70,66 @@ fn post_ids(html: &str) -> Vec<String> {
 	found.into_iter().map(|(_, id)| id).filter(|id| seen.insert(id.clone())).take(MAX_RESULTS).collect()
 }
 
+// SearchPosts request shape adapted from polak14/redlib at 29f18352cf54 (AGPL-3.0-only).
+async fn graphql_listing(path: &str, quarantine: bool) -> Result<Value, String> {
+	let web = web_path(path).ok_or("Unsupported post search")?;
+	let (route, _) = web.split_once('?').ok_or("Missing search parameters")?;
+	let query = crate::utils::param(path, "q").ok_or("Missing search query")?;
+	let query = match route.strip_prefix("/r/").and_then(|p| p.strip_suffix("/search/")) {
+		Some(sub) => format!("subreddit:{sub} {query}"),
+		None => query,
+	};
+	let sort = crate::utils::param(&web, "sort").unwrap_or_else(|| "relevance".into()).to_uppercase();
+	let range = crate::utils::param(&web, "t").unwrap_or_else(|| "all".into());
+	let nsfw = crate::utils::param(path, "include_over_18").is_some_and(|value| value == "on");
+	let body = json!({
+		"operationName": "SearchPosts",
+		"variables": {
+			"query": query, "sort": sort, "pageSize": MAX_RESULTS, "productSurface": "android",
+			"filters": [{"key": "time_range", "value": range}, {"key": "nsfw", "value": if nsfw { "1" } else { "0" }}]
+		},
+		"extensions": {"persistedQuery": {"version": 1, "sha256Hash": "8610e33521c90caa8d12576800c18b708ce0d19df3dfac8e2aad55d9860e4bf9"}}
+	});
+	let response = crate::gql::query(&body).await?;
+	let edges = response["data"]["search"]["general"]["posts"]["edges"]
+		.as_array()
+		.ok_or("Reddit returned invalid search results")?;
+	let mut seen = HashSet::new();
+	let ids: Vec<_> = edges
+		.iter()
+		.filter_map(|edge| edge["node"]["id"].as_str())
+		.filter(|id| {
+			id.strip_prefix("t3_")
+				.is_some_and(|id| !id.is_empty() && id.len() <= 16 && id.bytes().all(|byte| byte.is_ascii_alphanumeric()))
+		})
+		.filter(|id| seen.insert(*id))
+		.take(MAX_RESULTS)
+		.map(str::to_owned)
+		.collect();
+	if ids.is_empty() {
+		return Ok(json!({"kind":"Listing", "data":{"children":[], "after":null}}));
+	}
+	let metadata = tokio::time::timeout(std::time::Duration::from_secs(30), crate::feed::post_metadata(&ids, quarantine))
+		.await
+		.map_err(|_| "Reddit search metadata timed out")??;
+	let mut listing = crate::feed::ordered_listing(&ids, None, metadata)?;
+	let children = listing["data"]["children"].as_array_mut().ok_or("Reddit returned invalid search metadata")?;
+	children.retain(|post| {
+		(nsfw || post["data"]["over_18"] == false)
+			&& route
+				.strip_prefix("/r/")
+				.and_then(|p| p.strip_suffix("/search/"))
+				.is_none_or(|sub| post["data"]["subreddit"].as_str().is_some_and(|name| name.eq_ignore_ascii_case(sub)))
+	});
+	Ok(listing)
+}
+
 pub async fn listing(path: &str, quarantine: bool) -> Result<Value, String> {
 	let web = web_path(path).ok_or("This search cannot use the web fallback")?;
+	match graphql_listing(path, quarantine).await {
+		Ok(listing) => return Ok(listing),
+		Err(error) => log::debug!("GraphQL post search failed: {error}"),
+	}
 	let html = match crate::web::search_page(web.clone()).await {
 		Ok(html) => html,
 		Err(e) => {
